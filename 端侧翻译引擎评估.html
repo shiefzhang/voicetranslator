@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 端侧翻译引擎评估</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}main{max-width:1180px;margin:auto;padding:44px 30px 80px}header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}.tag{font-size:12px;letter-spacing:.14em;opacity:.72}h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}header p{max-width:850px;margin:.4em 0;opacity:.9}section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}h2{margin:0 0 14px;font-size:24px}h3{margin:22px 0 8px;font-size:18px}.lead{font-size:18px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.metric{padding:18px;border-radius:14px;background:#f6f8fc}.metric b{display:block;font-size:21px;color:var(--blue)}.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}.good{border-color:var(--green);background:#ecfdf3}.warn{border-color:#f5a524;background:#fff8e8}.bad{border-color:var(--red);background:#fff1f1}.table-wrap{overflow:auto;margin:12px 0}table{width:100%;border-collapse:collapse;min-width:910px}th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{white-space:nowrap;background:#f7f9fc;font-size:13px}td small{display:block;color:var(--muted)}.score{white-space:nowrap;font-weight:700}.s5{color:var(--green)}.s4{color:#287b56}.s3{color:var(--amber)}.s2,.s1{color:var(--red)}code{padding:.12em .35em;border-radius:5px;background:#edf1f7}ul,ol{padding-left:1.35em}.muted{color:var(--muted)}a{color:var(--blue)}footer{padding:28px 4px;color:var(--muted);font-size:13px}@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:30px}}
+</style>
+</head>
+<body><main>
+<header>
+  <div class="tag">ENGINEERING REVIEW · 2026-09-12</div>
+  <h1>专用端侧翻译引擎评估</h1>
+  <p class="lead">针对 VoiceTranslator：Android 已落地、未来覆盖 iOS；完全离线；中/英/日/韩四语、12 个有向语对；句级语音翻译；允许商用。</p>
+  <p>结论基于仓库代码审阅、官方能力与许可资料。质量和速度分数是工程预判，不是本项目真机基准测试结果。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>最快 Android 上线</b>Google ML Kit Translation<br><span class="muted">约 1–3 人日接入，另需模型下载、归因和验收</span></div>
+  <div class="metric"><b>跨平台专用 NMT 首选 PoC</b>M2M100-418M<br><span class="muted">单模型覆盖四语、MIT；真正产品化约 3–6 周</span></div>
+  <div class="metric"><b>当前最稳妥路线</b>保留 Qwen 基线 + 并行 A/B<br><span class="muted">现有链路已通，避免在未测质量前重写引擎</span></div>
+</div>
+<div class="callout good"><b>建议：</b>先把 ML Kit 作为 Android 的质量上界/低成本基线，同时做 M2M100-418M INT8 的离线 PoC；现有 Qwen2.5-1.5B 继续作为第三路。用同一套 12 语向测试集在目标真机盲评，胜者再进入产品主路径。</div>
+</section>
+
+<section>
+<h2>横向评分</h2>
+<p>5 分最好；“落地”越高代表越容易。包体为数量级估计，会随量化方式、词表和每语言包变化。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方案</th><th>类型 / 覆盖</th><th>预计质量</th><th>落地难度</th><th>体积 / 性能</th><th>商用与控制</th><th>本项目判断</th></tr></thead>
+<tbody>
+<tr><td><b>Google ML Kit Translation</b></td><td>系统 SDK；50+ 语言；中英日韩均覆盖<small>非英语互译通常经英语中转</small></td><td class="score s4">4/5 英语相关<br><span class="s3">3/5 非英语互译</span></td><td class="score s5">5/5</td><td>按语言动态下载；延迟低；不占本进程大块模型内存</td><td>闭源黑盒；需 Google 归因；嵌入式设备受限</td><td><b>Android 快速上线第一名</b>，但不适合把“同一模型跨平台、完全自主分发”作为核心卖点</td></tr>
+<tr><td><b>Apple Translation framework</b></td><td>系统框架；iOS 18+；运行时查询语种支持</td><td class="score s4">4/5 预估</td><td class="score s5">5/5</td><td>系统管理语言包；批量 API；真机才能完整验证</td><td>Apple 平台黑盒；模型不可带走；需用户允许下载</td><td><b>iOS 独立实现第一名</b>；无法成为 Android/iOS 统一引擎</td></tr>
+<tr><td><b>M2M100-418M + ORT/CTranslate2 类运行时</b></td><td>专用 encoder-decoder；101 语言；直接多语互译</td><td class="score s3">3.5/5</td><td class="score s2">2/5</td><td>原始权重约 1.94 GB；INT8 预期约 0.5–0.8 GB；解码通常比同体量 LLM 更高效</td><td>MIT；可自托管和固定版本</td><td><b>最值得验证的开源专用模型</b>。模型转换、SentencePiece、beam search、移动端算子与量化都需自建</td></tr>
+<tr><td><b>OPUS-MT / Marian / Bergamot</b></td><td>专用 NMT；按语向或多语模型</td><td class="score s3">2.5–4/5<small>语对差异很大</small></td><td class="score s2">2/5</td><td>单语向可很小很快；覆盖 12 方向会放大总包体和运维量</td><td>引擎 MPL-2.0；官方 OPUS 模型多为 CC-BY 4.0，但必须逐包核验</td><td>适合“少数固定强语对”。四语全互译会形成模型矩阵，不建议直接全量替换</td></tr>
+<tr><td><b>NLLB-200 distilled 600M</b></td><td>专用多语 NMT；200 语言</td><td class="score s4">4/5 预估</td><td class="score s2">2/5</td><td>仍偏大；移动端转换、量化、生成解码工作量高</td><td><b>CC-BY-NC 4.0，官方权重不可用于商业产品</b></td><td><b>淘汰</b>；仅可做非商业研究质量参考</td></tr>
+<tr><td><b>MADLAD-400-3B-MT</b></td><td>T5 专用翻译；400+ 语言</td><td class="score s4">4/5 预估</td><td class="score s1">1/5</td><td>3B 对手机过重；即使 4-bit 仍约 1.8–2.5 GB 加运行内存</td><td>Apache-2.0</td><td>许可好但端侧性价比差；不适合作为本项目首发模型</td></tr>
+<tr><td><b>现有 Qwen2.5-1.5B Q4_K_M + llama.cpp</b></td><td>通用生成式 LLM；单模型四语</td><td class="score s3">3–4/5<small>需按语向实测</small></td><td class="score s4">4/5（现状）</td><td>仓库模型 1.117 GB；CPU greedy；当前 3 线程</td><td>项目已有模型许可文件；运行时与模型均可控</td><td><b>继续保留为基线</b>。能利用提示词做 ASR 容错，但速度、幻觉和错语种风险高于专用 NMT</td></tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>“已经落地”的真实难度</h2>
+<h3>ML Kit：易在 API，难在产品约束</h3>
+<p>Android 代码接入很短，语言包下载、删除和离线调用都有现成 API。真正工作是：首次下载状态、磁盘不足、无 Google Play 环境、归因展示、非英语语对经英语中转的质量退化，以及中国大陆渠道兼容性验证。官方也明确把它定位为 casual/simple translation，并建议具体场景自行评估。</p>
+
+<h3>Apple Translation：iOS 最省事，但不是跨平台资产</h3>
+<p>iOS 18+ 可通过 <code>TranslationSession</code> 做单条与批量翻译、查询语言可用性并请求下载。优点是几乎不承担推理运行时维护；缺点是只能在 Apple 平台使用、模拟器不可完成翻译测试、下载与支持范围由系统控制。</p>
+
+<h3>M2M100 / NLLB：模型可用不等于 App 可用</h3>
+<p>典型工作包括：导出 ONNX、验证动态轴和缓存、移动端裁剪算子、INT8/INT4 量化、SentencePiece 原生集成、forced BOS 语言 token、beam search、取消与并发、16 KB page、Android/iOS 双平台构建，以及量化后 12 语向质量回归。一个可靠 PoC 约 1–2 周；生产级通常 3–6 周，且需要真机性能调优。</p>
+
+<h3>OPUS-MT / Bergamot：运行时成熟，模型矩阵是成本中心</h3>
+<p>Bergamot 是面向消费级设备优化的跨平台 C++ Marian 推理库，这一点很契合项目；但官方重心是浏览器/WASM，并没有开箱即用的 Android/iOS 产品 SDK。四种语言全互译若按双语模型部署，最多要维护 12 个方向；不同 checkpoint 的许可、词表、质量与量化产物也需逐一登记。</p>
+</section>
+
+<section>
+<h2>对当前代码的具体判断</h2>
+<ul>
+  <li>当前翻译 JNI 已经具备模型加载、mmap、串行互斥、取消回调、greedy 解码、上下文上限和目标文字脚本检查；替换为另一个 GGUF decoder-only 模型很容易，替换为 encoder-decoder 专用 NMT 则不是换模型文件，而是新增整套后端。</li>
+  <li>现模型实际大小为 <b>1,117,320,736 bytes</b>；上下文 2048、输出上限 256 token、3 CPU 线程。它的主要产品风险不是“跑不起来”，而是低端机尾延迟/热量，以及少量幻觉、漏译、错语种。</li>
+  <li>当前使用三个固定 few-shot 示例和脚本检查。脚本检查会误伤纯数字、网址、专有名词或合法的全拉丁字母日/韩译文，应在质量测试中单独计入“后处理误拒绝”。</li>
+  <li>专用 NMT 不会理解“顺带纠正 ASR 同音字”这类开放提示；但它通常更确定、更快、更少擅自解释。是否需要 LLM 纠错，应由端到端盲评决定，不能只看翻译模型 BLEU/COMET。</li>
+</ul>
+</section>
+
+<section>
+<h2>推荐决策与验证顺序</h2>
+<ol>
+  <li><b>不要立即重构。</b>冻结当前 Qwen 路线为 Baseline A。</li>
+  <li><b>Android 接 ML Kit 为 Baseline B。</b>预计 1–3 人日完成最小集成，约 1 周覆盖下载/异常/渠道/归因和自动测试。</li>
+  <li><b>做 M2M100-418M INT8 PoC 为 Candidate C。</b>先在桌面跑 12 语向，再上 Android；桌面质量不过线则不投入移动端工程。</li>
+  <li><b>只为弱语向补 OPUS-MT。</b>若 M2M100 某两个方向明显落后，再查对应 OPUS 模型；避免一开始维护 12 包。</li>
+  <li><b>同一测试集盲评。</b>每个方向至少 200 条：短口语、数字金额、时间地址、人名、否定、礼貌体、ASR 常见错字与噪声。人工评分“意思正确/关键信息/流畅/擅自增删”，同时记录 P50/P95、峰值 RSS、模型加载和 15 分钟热衰减。</li>
+</ol>
+<div class="callout warn"><b>决策阈值建议：</b>新引擎只有在关键语义错误率至少降低 20%，或 P95 延迟至少降低 35%，且包体/许可/渠道不恶化时才值得替换；否则继续优化已落地的 Qwen 链路更划算。</div>
+</section>
+
+<section>
+<h2>资料依据</h2>
+<ul>
+  <li><a href="https://developers.google.com/ml-kit/language/translation">Google ML Kit on-device Translation</a>；<a href="https://developers.google.com/ml-kit/language/translation/translation-terms">使用与归因要求</a></li>
+  <li><a href="https://developer.apple.com/documentation/translation/translating-text-within-your-app">Apple：在 App 内翻译文本</a>；<a href="https://developer.apple.com/documentation/translation/translationsession">TranslationSession</a></li>
+  <li><a href="https://huggingface.co/facebook/m2m100_418M">Meta M2M100-418M model card</a>；<a href="https://onnxruntime.ai/docs/tutorials/mobile/">ONNX Runtime Mobile</a></li>
+  <li><a href="https://huggingface.co/facebook/nllb-200-3.3B">Meta NLLB model card / CC-BY-NC</a></li>
+  <li><a href="https://github.com/browsermt/bergamot-translator">Bergamot Translator</a>；<a href="https://github.com/Helsinki-NLP/Opus-MT">OPUS-MT</a></li>
+  <li><a href="https://huggingface.co/google/madlad400-3b-mt">MADLAD-400-3B-MT model card</a>；<a href="https://github.com/ggml-org/llama.cpp/blob/master/docs/build.md">llama.cpp Android build</a></li>
+</ul>
+</section>
+
+<footer>评估边界：未在本轮下载或运行候选模型，也未在目标 Android/iPhone 真机上测量；所有质量分均为选型优先级，不应作为发布宣传数据。最终结论必须以项目自己的 12 语向盲评和真机测量为准。</footer>
+</main></body></html>

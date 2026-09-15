@@ -1,0 +1,11 @@
+.gradle/
+**/build/
+**/.cxx/
+local.properties
+.tools/
+downloads/
+third_party/
+model-work/
+dist/
+__pycache__/
+

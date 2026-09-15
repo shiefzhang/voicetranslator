@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "translategemma-4b-text-q4km-v1",
+  "name": "TranslateGemma 4B 文本翻译 Q4_K_M",
+  "version": "1.0.0",
+  "kind": "translation",
+  "engine": "llama-gemma3",
+  "runtime": "llama.cpp b9631",
+  "languages": ["zh", "ja", "ko", "en"],
+  "contextSize": 2048,
+  "promptVersion": "translategemma-template-v1",
+  "modality": "text-only",
+  "quantization": "Q4_K_M",
+  "source": "https://huggingface.co/google/translategemma-4b-it"
+}

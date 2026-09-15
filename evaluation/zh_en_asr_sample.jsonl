@@ -1,0 +1,10 @@
+{"id":"zh-en-001","source_lang":"zh","target_lang":"en","source":"最近的地铁站在哪里？","reference":"Where is the nearest subway station?","critical_terms":[["nearest"],["subway","metro"],["where"]]}
+{"id":"zh-en-002","source_lang":"zh","target_lang":"en","source":"我不要去机场。","reference":"I do not want to go to the airport.","critical_terms":[["not","don't","do not"],["airport"]]}
+{"id":"zh-en-003","source_lang":"zh","target_lang":"en","source":"请在下午三点十五分叫一辆出租车。","reference":"Please call a taxi at 3:15 p.m.","critical_terms":[["3:15","three fifteen"],["taxi","cab"]]}
+{"id":"zh-en-004","source_lang":"zh","target_lang":"en","source":"总共是一百二十八元五角。","reference":"The total is 128 yuan and 50 fen.","critical_terms":[["128","one hundred and twenty-eight"],["50","fifty"],["yuan"]]}
+{"id":"zh-en-005","source_lang":"zh","target_lang":"en","source":"我的名字是陈晓明。","reference":"My name is Chen Xiaoming.","critical_terms":[["Chen Xiaoming"]]}
+{"id":"en-zh-001","source_lang":"en","target_lang":"zh","source":"Where is the nearest subway station?","reference":"最近的地铁站在哪里？","critical_terms":[["最近"],["地铁"],["哪里","何处"]]}
+{"id":"en-zh-002","source_lang":"en","target_lang":"zh","source":"Do not add sugar to the coffee.","reference":"咖啡里不要加糖。","critical_terms":[["不","别"],["糖"],["咖啡"]]}
+{"id":"en-zh-003","source_lang":"en","target_lang":"zh","source":"The train leaves at 7:42 tomorrow morning.","reference":"火车明天早上七点四十二分出发。","critical_terms":[["明天"],["7:42","七点四十二"],["火车"]]}
+{"id":"en-zh-004","source_lang":"en","target_lang":"zh","source":"The medicine costs 36 dollars and 20 cents.","reference":"这种药售价三十六美元二十美分。","critical_terms":[["36","三十六"],["20","二十"],["美元"]]}
+{"id":"en-zh-005","source_lang":"en","target_lang":"zh","source":"Please take me to 18 Nanjing Road.","reference":"请带我去南京路十八号。","critical_terms":[["南京路"],["18","十八"]]}

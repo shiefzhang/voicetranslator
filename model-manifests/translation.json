@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen25-3b-q4km-four-language-v1",
+  "name": "Qwen 3B 中日韩英翻译",
+  "version": "1.1.0",
+  "kind": "translation",
+  "engine": "llama-qwen2",
+  "runtime": "llama.cpp b9631",
+  "languages": ["zh", "ja", "ko", "en"],
+  "contextSize": 2048,
+  "promptVersion": "script-constrained-fewshot-v2",
+  "source": "https://modelscope.cn/models/Qwen/Qwen2.5-3B-Instruct-GGUF"
+}

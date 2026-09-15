@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VoiceTranslator · Android / iOS 可行性评审</title><style>
+:root{color-scheme:light;--ink:#192d39;--muted:#536a77;--line:#dbe5e8;--teal:#006e68}*{box-sizing:border-box}body{margin:0;background:#f1f5f5;color:var(--ink);font:16px/1.8 system-ui,'Microsoft YaHei',sans-serif}main{max-width:1120px;margin:auto;padding:40px 28px 80px}header{background:#113c46;color:white;padding:38px;border-radius:20px}h1{font-size:34px;line-height:1.35;margin:12px 0}h2{font-size:24px;margin:0 0 18px}h3{font-size:18px;margin:24px 0 8px}p{margin:10px 0}.eyebrow{letter-spacing:2px;font-size:12px;color:#a6ded4}.lead{font-size:20px}section{background:white;border:1px solid var(--line);border-radius:16px;margin-top:24px;padding:28px}a{color:var(--teal);text-underline-offset:3px}header a{color:#c6f1eb}.muted,small{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px}.card{padding:18px;background:#f0f7f5;border-radius:12px}.card strong{display:block;font-size:18px}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;vertical-align:top;padding:13px;border-bottom:1px solid var(--line)}th{background:#edf4f5}td:first-child{min-width:115px}code{background:#edf2f4;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}.note{border-left:4px solid #cc8725;background:#fff8ea;padding:14px 18px;margin-top:18px}.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.flow span{padding:10px 14px;background:#e8f4f1;border-radius:9px}.badge{font-size:12px;color:#9a3434;font-weight:700}li{margin:8px 0}nav{margin-top:18px;display:flex;flex-wrap:wrap;gap:20px}@media(max-width:700px){main{padding:16px 12px}header,section{padding:22px}.grid{grid-template-columns:1fr}h1{font-size:27px}}@media print{body{background:white}main{padding:0}section{break-inside:auto}header{background:#eef5f5;color:#192d39}nav{display:none}a{color:inherit}.card{break-inside:avoid}}
+</style></head><body><main>
+<header><div class="eyebrow">ARCHITECTURE REVIEW · 2026-09-11</div><h1>VoiceTranslator<br>Android / iOS 可行性与方案评审</h1><p class="lead">可以做成双平台离线翻译 App；不建议把现有设计逐条照搬成产品。</p><p>推荐从「四语种、轮流说话、句级离线翻译」起步，统一 ASR 实现，先验证翻译质量和最低支持机型，再增加实时字幕。</p></header>
+<nav><a href="#verdict">可行性</a><a href="#risks">关键风险</a><a href="#architecture">推荐架构</a><a href="#alternatives">方案比较</a><a href="#validation">验证与路线</a></nav>
+<p class="muted">评审范围：完整阅读同目录《概要设计书.md》v1.0，并核对相关官方资料。目录中没有 Android / iOS 源码、模型或测试结果；下述实现问题来自文档描述与代码片段，未验证真实工程。本文不修改原设计书。网页资料会更新，发布前需再次核对。</p>
+
+<section id="verdict"><h2>01 / 能做到什么</h2><div class="grid"><div class="card"><strong>Android：可行性高</strong>端侧录音、ASR 和 GGUF 推理有落地路径。量产风险主要在设备差异、持续性能及模型交付。</div><div class="card"><strong>iOS：可行性高</strong>核心引擎可复用。音频会话、Swift 接口、内存压力与资源交付必须专门设计。</div><div class="card"><strong>同机同时说话：高风险</strong>单路混合音频不等于两路独立声音。现有设计没有说话人分离或重叠语音处理方案。</div></div>
+<p>现有设计的优点是明确了离线边界、模型资产、模块职责和已知缺陷，适合作为原型说明。但「纯逻辑 100% 照搬」「设计零变更」「精修 70ms」这些表述过于确定。第 6.6 节明确性能是目标而非实测，不能据此承诺用户体验。</p>
+<p>官方 sherpa-onnx 已提供 SenseVoice 的 Android、iOS 与 Swift/C API 支持，llama.cpp 提供 Apple Silicon 优化和 XCFramework 路径，因此底层可移植性有依据；这不等于 Android 的线程调度和内存行为会自动平移到 iOS。<a href="https://k2-fsa.github.io/sherpa/onnx/sense-voice/index.html">[S1]</a> <a href="https://github.com/ggml-org/llama.cpp">[S2]</a></p></section>
+
+<section id="risks"><h2>02 / 优先解决的风险</h2><div class="table-wrap"><table><thead><tr><th>优先级 / 依据</th><th>问题及影响</th><th>处理建议</th></tr></thead><tbody>
+<tr><td><span class="badge">P0 · 文档可确认</span><br>§3.8 / I4</td><td>5120 个样本只够 0.32 秒，所谓「整句精修」实际可能只收到句尾。修正常量后，原来的速度与精度判断也必须重测。</td><td>使用采样率 × 时长定义容量；长句上限、强制切段及溢出行为统一，禁止悄悄丢掉句首。</td></tr>
+<tr><td><span class="badge">P0 · 文档可确认</span><br>§3.6 / I6</td><td>GGUF 配置路径指向目录，资产表给出的文件又在下一层；按此实现会加载失败。</td><td>统一 ModelId 清单、实际路径、文件字节数和 SHA-256；加载前验证完整性。</td></tr>
+<tr><td><span class="badge">P0 · 条件性风险</span><br>§2.4 / §3.8</td><td>若 collect 内等待精修与翻译完成，主线程即使被 withContext 释放，这个收集器仍暂停消费音频。下一句将延迟处理；64 × 100ms 仅提供约 6.4 秒余量。</td><td>采集/切句与后处理解耦。独立串行 ASR worker、有界整句队列和串行翻译 worker；满队列明确提示或限制新任务。</td></tr>
+<tr><td><span class="badge">P0 · 片段可确认</span><br>§3.8</td><td>端点成立的 chunk 没有 append；流式文本为空时又不 drain/reset 句缓冲。会漏边界音频，或让旧音频进入下一句。</td><td>先收完整边界音频，再按时间戳切句；空端点也清理，停止录音应提交尾句，切语言应隔离旧任务。</td></tr>
+<tr><td><span class="badge">P0 · 待数值验证</span><br>§3.4 / §5.2</td><td>自写 Fbank 被标记为可直接复制，却没有参考特征对齐证据。Mel 名称、窗函数、padding、幅值尺度、log floor、LFR 补帧和 CMVN 符号都需核对。</td><td>优先改为 sherpa 的完整 SenseVoice 识别接口；若保留自写前端，必须与相同模型的官方输入特征逐级比对。</td></tr>
+<tr><td><span class="badge">P1 · 产品风险</span><br>§1.1 / F10</td><td>双向翻译被等同于双人同时说话。两个识别器读同一麦克风混音，并不会得到 A、B 各自的干净音频。</td><td>首版提供 A/B 两个发言按钮、轮流说话。重叠语音分离另立项目；两台设备分别采集属于另一产品形态。</td></tr>
+<tr><td><span class="badge">P1 · 质量风险</span><br>§3.6</td><td>1.5B 通用模型的四语翻译能力没有实测。先纠错再翻译可能擅改数字、人名和否定；只取第一行可能截断合法译文。</td><td>先使用忠实翻译提示词；原文可编辑；测试术语、数字、金额、否定和口音。纠错单独开关，不能无痕改写原文。</td></tr>
+<tr><td><span class="badge">P1 · 稳定性风险</span><br>§2.4 / §4.4</td><td>全局互斥锁会阻塞所有 context；取消协程不保证 JNI 生成结束。释放、切语言、后台恢复可能遇到竞态；失败返回空串无法诊断。</td><td>定义任务 ID、语言快照、取消 token、超时、错误码；先取消并等待 worker 退出再释放。每个 context 明确单一所有者。</td></tr>
+</tbody></table></div>
+<h3>设计书还应纠正的技术表述</h3><ul>
+<li><b>SharedFlow 不会因 extraBufferCapacity 自动「丢最旧」。</b>默认溢出策略是 SUSPEND；emit 会等待，tryEmit 满时返回失败。必须查看实际发送方法并明确处理。<a href="https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines.flow/-mutable-shared-flow.html">[S3]</a></li>
+<li><b>Fbank 的参数不是天然跨平台标准。</b>文档标为 Slaney 的 2595·log10(1+f/700) 是常见 HTK 风格 Mel 公式；CMVN 表中 AddShift 的符号描述也存在歧义。应以选定模型和参考实现为准。跨平台一致地实现错误前端仍然是错误。</li>
+<li><b>缺少 CMVN 不宜静默跳过。</b>先确认所用导出图是否已包含归一化；若模型要求外部 CMVN 而资源缺失，应报告不可用，不要继续生成看似正常的错误文本。</li>
+<li><b>PCM16 ÷32768 只适用于整型转浮点。</b>iOS 如果已提供归一化 float，就不要再除。需要固定下游采样率/幅值约定，100ms 只是交付块长，不是所有模型不可修改的要求。</li>
+<li><b>固定随机种子不能保证跨 CPU/GPU 逐字一致。</b>浮点、量化内核与后端差异仍可能改变 token；回归应分为特征容差、识别错误率和译文语义/实体保真。</li>
+<li><b>assets 绝对不能 mmap 的说法不准确。</b>Android NDK 提供资产文件描述符与 offset/length 接口，未压缩资产可存在直接访问路径；但现有引擎的文件路径 API 未必能利用它。落盘是合理默认策略，不是平台定律。<a href="https://developer.android.com/ndk/reference/group/asset">[S4]</a></li>
+<li><b>首字上屏和句尾等待要分开计时。</b>实时 partial 不应等待静音端点；「精修更准」也需对每种语言实测，不能每次无条件覆盖。</li></ul></section>
+
+<section><h2>03 / 双平台工程与发布风险</h2><div class="table-wrap"><table><thead><tr><th>主题</th><th>Android</th><th>iOS</th></tr></thead><tbody>
+<tr><td>内存与散热</td><td>mmap 不消除权重驻留、KV cache 和推理工作区；largeHeap 不保证原生推理可用内存。低端机不能靠 minSdk 判断是否支持。</td><td>没有 Android largeHeap 对应保证。需验证内存压力退出、CPU/Metal 峰值、连续会话降频，按真机结果确定最低支持机型。</td></tr>
+<tr><td>音频与生命周期</td><td>权限拒绝/撤销、设备切换、应用后台、来电与录音错误应进入明确状态。流式解码不放 UI 主线程。</td><td>使用 AVAudioSession + AVAudioEngine；按实际硬件采样率重采样，处理路由变化、中断、蓝牙及恢复。首版建议前台使用。</td></tr>
+<tr><td>加速</td><td>CPU 先建立基线，再对指定设备验证加速后端；「注册成功」不代表模型完整运行在加速器上。</td><td>llama.cpp 可评估 Metal；SenseVoice 用 CPU 基线，再测 CoreML EP。动态形状和算子支持会影响分图与回退，不能简单替换 NNAPI 后承诺加速。<a href="https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html">[S5]</a></td></tr>
+<tr><td>模型交付</td><td>1.93GiB APK 的数字不能直接当作商店分发方案。需按当前 AAB/模块/资源包规则验证，Google Play 与其他渠道分开实现。<a href="https://support.google.com/googleplay/android-developer/answer/9859372">[S6]</a></td><td>Bundle、下载及资源托管按最低系统版本选择。新项目应评估 Background Assets；Apple 当前文档已提示 ODR 弃用及迁移方向，不应将 ODR 写成长期唯一方案。<a href="https://developer.apple.com/help/app-store-connect/reference/app-uploads/on-demand-resources-size-limits">[S7]</a></td></tr>
+<tr><td>构建验证</td><td>每个实际 .so 和最终包都验证 16KB 对齐与运行，不能仅靠版本号推定。发布时另核 targetSdk 要求。<a href="https://developer.android.com/guide/practices/page-sizes">[S8]</a></td><td>需要 Mac/Xcode 构建与签名环境、iPhone 真机验证、设备和模拟器 slice 管理；Windows 上的当前文档不足以验证这些环节。</td></tr>
+</tbody></table></div>
+<p><b>模型存储：</b>APK 内置后再复制会重复占盘，升级还会需要临时空间。只靠 tokens.txt 存在或文件大于 100MB 不能判定完整；采用 manifest + hash + 临时目录 + 验证后原子切换，保留失败恢复能力。iOS 模型目录明确备份排除策略；离线可用承诺不能依赖可能被清理的缓存。</p>
+<p><b>许可：</b>Qwen2.5-1.5B-Instruct 官方模型卡标注 Apache 2.0；SenseVoice 官方说明区分代码与权重许可，商用须遵循模型条款及署名要求。不能从 sherpa 代码许可推导所有模型同属 Apache 2.0。应逐项记录具体 Zipformer、ONNX 转换和 GGUF 来源、版本、hash、LICENSE/NOTICE。当前目录没有资产，尚不能完成最终许可核验。<a href="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct">[S9]</a> <a href="https://github.com/QwenAudio/SenseVoice#license">[S10]</a></p>
+<div class="note"><b>先定义“离线”。</b>「语音与推理不联网，模型准备好后离线可用」允许初次下载；「安装后第一次启动就能断网使用」需要随包/安装资源交付；「App 无 INTERNET 权限」还会限制自行下载。三种要求不能混写。</div></section>
+
+<section id="architecture"><h2>04 / 推荐架构：先减少链路，再增加体验</h2><div class="flow"><span>单麦克风 · A/B 发言按钮</span>→<span>重采样 · VAD / 松手切句</span>→<span>完整语句 + 语言快照</span>→<span>sherpa SenseVoice</span>→<span>可替换 Translator</span>→<span>原文 + 译文气泡</span></div>
+<p><b>核心建议：</b>第一版使用同一个多语种 SenseVoice 做句级 ASR，不为中英日韩分别常驻流式模型。通过 sherpa 的离线识别接口接入，无须应用自己维护 Fbank、LFR、CMVN、CTC 和独立 ORT Java 会话。这里减少的是应用层集成入口，sherpa 底层仍使用 ONNX Runtime。需要确认现有模型导出格式与接口匹配。<a href="https://k2-fsa.github.io/sherpa/onnx/sense-voice/index.html">[S1]</a></p>
+<p>代价是说话过程中没有真正的逐字字幕。先显示录音波形、时长及「正在识别」，句末出文字；若实时字幕确实是核心卖点，再保留当前双 pass，但让流式字幕成为可选语言包，最终识别仍走统一接口。</p>
+<p>按设计书给出的字节数计算，仅 Qwen + SenseVoice 权重约 <b>1.3566GB（1.263GiB）</b>，尚不含词表、VAD、引擎和 App。删掉其他 ASR 资产会减小包体，但远未成为轻量 App；主要体积仍在翻译模型。</p>
+<h3>工程边界</h3><ul><li>Android 用 Compose，iOS 用 SwiftUI；底层共享 C/C++ 引擎和稳定 C ABI，包装 handle、配置、取消与错误码。不要逐行复制 Kotlin 数值算法到 Swift。</li><li>当前协调逻辑较少，可两端各写薄编排层，以同一事件契约验收；若团队熟悉 Kotlin Multiplatform 再共享状态/业务层，不为少量代码提前引入额外构建体系。</li><li>AudioFrame 增加单调时间戳和序号；Utterance 固化 ID、会话 ID、语言对与音频范围。晚到的旧任务结果只能更新原气泡，不能覆盖新会话。</li><li>采集持续运行，ASR 和翻译通过有界队列串接；UI 可提示任务积压。降低设备档位时停止实时字幕或限制新录音，不能静默丢句。</li><li>ModelProvider 从单一 resolve(path) 扩展为准备状态、进度、版本、完整性检查、加载/卸载与错误恢复。</li></ul></section>
+
+<section id="alternatives"><h2>05 / 有没有更好的翻译方案</h2><div class="table-wrap"><table><thead><tr><th>方案</th><th>优势</th><th>代价 / 适用性</th></tr></thead><tbody>
+<tr><td>A · SenseVoice + 本地 Qwen<br><b>严格自包含首选基线</b></td><td>模型与版本可控，双平台共享资产；无需云端文本服务。</td><td>大权重、生成耗时和翻译忠实度仍需验证。保留 1.5B 作为基准，不凭参数规模直接换 0.5B。</td></tr>
+<tr><td>B · SenseVoice + ML Kit 翻译<br><b>轻量方案对照实验</b></td><td>Android / iOS 均可接入端侧文本翻译，减少自行维护 LLM 的工作。</td><td>需要语言模型准备/下载与渠道可达性测试；非英语互译经英语中转，中文↔日/韩需重点测。Google 也提示它更适合日常简单翻译，不能直接假设质量更好。<a href="https://developers.google.com/ml-kit/language/translation">[S11]</a></td></tr>
+<tr><td>C · 专用机器翻译模型</td><td>可针对目标语向优化，可能降低内存和延迟。</td><td>每个 checkpoint 的商用许可、语向、量化兼容与运行时都需逐项验证；维护多语向可能增加总包体。值得设实验，不宜未评测就替换。</td></tr>
+<tr><td>D · 保留双 ASR</td><td>实时字幕体验更完整，适合明确要求边说边看字的产品。</td><td>多模型加载、热量与调度复杂；应使用统一 sherpa 接口并按语种加载。精修收益需超过成本。</td></tr>
+</tbody></table></div><p>若希望快速发布，先并列评估 A/B；若模型不能首次下载且必须跨平台自主控制，则以 A 为主。云端兜底会改变当前隐私与离线边界，不作为默认推荐。</p></section>
+
+<section id="validation"><h2>06 / 开发前先做可否继续的验证</h2><p>以下是建议验收方法，不是已经达到的指标或工期承诺。</p><ol>
+<li><b>先验证模型链路。</b>两平台各做 WAV 输入的小程序，验证 SenseVoice → 翻译，暂不接复杂 UI。锁定模型和引擎 hash，记录冷启动、预热及模型加载时间。</li>
+<li><b>明确语向范围。</b>中文分别与英/日/韩互译是 6 个方向；四语任意互译是 12 个方向。先确定产品范围，逐方向建立至少 100 条初始验证集，覆盖短句、长句、数字、人名、否定、口音和噪声，后续扩展。</li>
+<li><b>分开测识别与翻译。</b>ASR 测 CER/WER；用正确人工原文测试 MT，再测完整链路。由懂目标语言的人评译文，单列数字/否定/实体错误率，不能只看“很流畅”。</li>
+<li><b>测目标设备。</b>至少覆盖预期最低 Android、主流 Android、预期最旧 iPhone 和新款 iPhone。全程飞行模式、冷/热状态、持续对话 20–30 分钟，记录峰值内存、耗电、降频、P50/P95 延迟及丢帧/积压。</li>
+<li><b>按输出长度评估速度。</b>句尾到最终译文 = 端点等待 + 排队 + ASR + prompt 处理 + token 生成 + UI 更新。例如生成 60 token、速度假设 10 token/s，仅生成就要 6 秒；这是算例，不是设备测量。首 token 与最终完成应分列。</li>
+<li><b>通过故障验证再上产品。</b>模型下载中断、空间不足、模型损坏、拒绝权限、来电、切语言、快速启停、后台切回、任务取消、连续静音和超长句均有可恢复结果。用断网首次/再次启动分别验证离线承诺。</li>
+</ol><div class="note"><b>建议推进顺序：</b>修正设计中的 P0 问题 → 双平台推理样机及 A/B 翻译评测 → 轮流发言 MVP → 资源交付与稳定性 → 可选流式字幕。最低机型达不到句末延迟预算时，优先缩小支持设备或更换翻译方案，再考虑 GPU 优化；不要一开始同时推进四语流式、重叠讲话和双平台商店发布。</div>
+<h3>设计书下一版应补的交付物</h3><p>将“当前实现”“性能目标”“真机测量”分栏；增加会话/任务状态机、切句与取消契约、模型 manifest、逐项许可清单、平台支持矩阵、资源交付策略、基准音频及验收表。把「原样移植」改成「共享模型与核心接口、平台行为单独验证」。</p></section>
+<footer><p class="muted">证据说明：P0/P1 为本次工程优先级判断；文档片段问题不等于已确认真实源码缺陷。本文所有外部依据均已在对应段落给出官方链接；未执行构建、模型推理或真机性能测试。</p></footer>
+</main></body></html>

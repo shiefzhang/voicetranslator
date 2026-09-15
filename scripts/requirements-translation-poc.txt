@@ -1,0 +1,4 @@
+torch>=2.4,<3
+transformers>=4.46,<6
+sentencepiece>=0.2,<1
+psutil>=6,<8
