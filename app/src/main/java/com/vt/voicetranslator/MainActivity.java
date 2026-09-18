@@ -24,9 +24,9 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public final class MainActivity extends Activity {
-    private static final String CHANGELOG="版本 0.2.2\n"+
-        "• 新增法语、德语和俄语翻译目标语言\n"+
-        "• 法语、德语和俄语仅支持正向翻译，反向翻译入口自动禁用\n"+
+    private static final String CHANGELOG="版本 0.2.3\n"+
+        "• 翻译进行期间保持屏幕常亮，全部翻译完成后恢复系统息屏设置\n\n"+
+        "版本 0.2.2\n"+
         "• 修复 TranslateGemma 大模型导入时的 ZIP 格式兼容问题\n"+
         "• 修正反向不可用时底部导航栏的文字顺序\n\n"+
         "版本 0.2.1\n"+
