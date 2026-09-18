@@ -145,5 +145,5 @@ final class Pipeline {
         catch(Exception e){listener.state("录音错误："+e.getMessage());}
         finally{recording=false;segmenter.flush();latest.set(null);captureDone=true;AudioRecord r=recorder;recorder=null;if(r!=null){try{r.stop();}catch(Exception ignored){}r.release();}}
     }
-    static String languageName(String s){switch(s){case "zh":return "Chinese";case "ja":return "Japanese";case "ko":return "Korean";default:return "English";}}
+    static String languageName(String s){switch(s){case "zh":return "Chinese";case "ja":return "Japanese";case "ko":return "Korean";case "fr":return "French";case "de":return "German";case "ru":return "Russian";default:return "English";}}
 }

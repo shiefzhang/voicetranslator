@@ -24,7 +24,12 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public final class MainActivity extends Activity {
-    private static final String CHANGELOG="版本 0.2.1\n"+
+    private static final String CHANGELOG="版本 0.2.2\n"+
+        "• 新增法语、德语和俄语翻译目标语言\n"+
+        "• 法语、德语和俄语仅支持正向翻译，反向翻译入口自动禁用\n"+
+        "• 修复 TranslateGemma 大模型导入时的 ZIP 格式兼容问题\n"+
+        "• 修正反向不可用时底部导航栏的文字顺序\n\n"+
+        "版本 0.2.1\n"+
         "• 转写始终跟随最新内容，翻译继续后台异步处理\n"+
         "• 支持点击原文或译文切换淡黄色对应行\n"+
         "• 错误语种时自动加强指令重试一次\n\n"+
@@ -39,7 +44,7 @@ public final class MainActivity extends Activity {
         "• 支持中文、日语、韩语和英语离线语音翻译\n"+
         "• 支持本地导入转写与翻译模型包\n"+
         "• 支持停顿自动分句和三种界面风格";
-    private final String[] codes={"zh","ja","ko","en"},names={"中文","日本語","한국어","English"},shortNames={"中文","日语","韩语","英语"};
+    private final String[] codes={"zh","ja","ko","en","fr","de","ru"},names={"中文","日本語","한국어","English","Français","Deutsch","Русский"},shortNames={"中文","日语","韩语","英语","法语","德语","俄语"};
     private int page=1,bg,ink,muted,accent,line,surface;
     private SharedPreferences prefs;
     private LinearLayout root,body,nav;
@@ -59,7 +64,8 @@ public final class MainActivity extends Activity {
     private long session=0;
     @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("vt",0);history.add(new LinkedHashMap<>());history.add(new LinkedHashMap<>());render();}
     private int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
-    private int index(String code){for(int i=0;i<4;i++)if(codes[i].equals(code))return i;return 0;}
+    private int index(String code){for(int i=0;i<codes.length;i++)if(codes[i].equals(code))return i;return 0;}
+    private boolean reverseAvailable(){String target=other();return target.equals("zh")||target.equals("ja")||target.equals("ko")||target.equals("en");}
     private String main(){return prefs.getString("main","zh");}
     private String other(){return prefs.getString("other","en");}
     private String appVersion(){try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}catch(PackageManager.NameNotFoundException e){return "未知";}}
@@ -77,8 +83,8 @@ public final class MainActivity extends Activity {
         if(page==2)settings();else translationPage();
         divider(root);nav=new LinearLayout(this);nav.setPadding(dp(8),dp(5),dp(8),dp(5));root.addView(nav,new LinearLayout.LayoutParams(-1,dp(70)));
         int[] icons={android.R.drawable.ic_menu_revert,android.R.drawable.ic_menu_send,android.R.drawable.ic_menu_preferences};
-        String[] labels={"译成"+shortNames[index(main())],"译成"+shortNames[index(other())],"设置"};
-        for(int i=0;i<3;i++){final int p=i;LinearLayout item=vertical();item.setGravity(Gravity.CENTER);item.setContentDescription(labels[i]);item.setClickable(true);ImageView icon=new ImageView(this);icon.setImageResource(icons[i]);icon.setImageTintList(ColorStateList.valueOf(page==i?accent:muted));item.addView(icon,new LinearLayout.LayoutParams(dp(25),dp(25)));TextView title=text(labels[i],12,page==i?accent:muted);title.setGravity(Gravity.CENTER);title.setPadding(0,dp(4),0,0);item.addView(title);nav.addView(item,new LinearLayout.LayoutParams(0,-1,1));item.setOnClickListener(v->{if(page!=p){if(pipeline!=null)pipeline.stop();page=p;render();}});}
+        String[] labels={reverseAvailable()?"译成"+shortNames[index(main())]:"反向不可用","译成"+shortNames[index(other())],"设置"};
+        for(int i=0;i<3;i++){final int p=i;LinearLayout item=vertical();item.setGravity(Gravity.CENTER);item.setContentDescription(labels[i]);item.setClickable(true);ImageView icon=new ImageView(this);icon.setImageResource(icons[i]);icon.setImageTintList(ColorStateList.valueOf(page==i?accent:muted));item.addView(icon,new LinearLayout.LayoutParams(dp(25),dp(25)));TextView title=text(labels[i],12,page==i?accent:muted);title.setGravity(Gravity.CENTER);title.setPadding(0,dp(4),0,0);item.addView(title);nav.addView(item,new LinearLayout.LayoutParams(0,-1,1));item.setOnClickListener(v->{if(p==0&&!reverseAvailable()){message("法语、德语和俄语仅支持作为翻译目标语言，暂不支持反向翻译");return;}if(page!=p){if(pipeline!=null)pipeline.stop();page=p;render();}});}
     }
     private void translationPage(){
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);header.setPadding(dp(22),dp(14),dp(16),dp(12));
@@ -146,7 +152,9 @@ public final class MainActivity extends Activity {
     private void language(String key){
         if(pipeline!=null){message("请等待当前翻译结束后切换语言。");return;}
         String current=prefs.getString(key,key.equals("main")?"zh":"en"),opposite=key.equals("main")?other():main();
-        new AlertDialog.Builder(this).setTitle(key.equals("main")?"主语言":"翻译语言").setSingleChoiceItems(names,index(current),(d,n)->{
+        String[] choices=key.equals("main")?Arrays.copyOf(names,4):names;
+        new AlertDialog.Builder(this).setTitle(key.equals("main")?"主语言":"翻译语言").setSingleChoiceItems(choices,index(current),(d,n)->{
+            if(key.equals("main")&&n>=4){Toast.makeText(this,"法语、德语和俄语仅支持作为翻译目标语言",Toast.LENGTH_SHORT).show();return;}
             if(codes[n].equals(opposite)){Toast.makeText(this,"主语言与翻译语言不能相同",Toast.LENGTH_SHORT).show();return;}
             d.dismiss();if(codes[n].equals(current))return;
             Runnable change=()->{for(int p=0;p<2;p++){history.get(p).clear();drafts[p]="";focusedKeys[p]="";renderedFocus[p]="";}prefs.edit().putString(key,codes[n]).apply();render();};

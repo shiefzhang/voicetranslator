@@ -51,12 +51,19 @@ def build(root, metadata, target):
     validate_manifest(m)
     target.parent.mkdir(parents=True,exist_ok=True)
     temp=target.with_suffix('.partial')
-    with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_STORED,allowZip64=True) as z:
-        z.writestr('manifest.json',json.dumps(m,ensure_ascii=False,indent=2).encode())
-        for f in m['files']: z.write(root/f['path'],f['path'])
-    verify(temp)
+    # Android ZipFile has a signed 32-bit central-directory offset bug.
+    # Emit ZIP64 metadata even below the 4 GiB threshold so archives whose
+    # central directory crosses 2 GiB remain importable on Android.
+    old_zip64_limit = zipfile.ZIP64_LIMIT
+    zipfile.ZIP64_LIMIT = 0
+    try:
+        with zipfile.ZipFile(temp,'w',compression=zipfile.ZIP_STORED,allowZip64=True) as z:
+            z.writestr('manifest.json',json.dumps(m,ensure_ascii=False,indent=2).encode())
+            for f in m['files']: z.write(root/f['path'],f['path'])
+        verify(temp)
+    finally:
+        zipfile.ZIP64_LIMIT = old_zip64_limit
     temp.replace(target)
-    target.with_suffix(target.suffix+'.sha256').write_text(sha256(target)+'  '+target.name+'\n')
     print(f'Created {target}: {target.stat().st_size:,} bytes')
 
 def verify(path):
