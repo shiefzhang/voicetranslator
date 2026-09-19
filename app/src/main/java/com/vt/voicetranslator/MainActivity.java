@@ -28,7 +28,7 @@ public final class MainActivity extends Activity {
     private static final String CHANGELOG="版本 0.3.0\n"+
         "• 新增系统 TTS 翻译后朗读开关\n"+
         "• TTS 播放期间暂停语音输入，播放结束后自动恢复\n\n"+
-    private static final String CHANGELOG="版本 0.2.3\n"+
+        "版本 0.2.3\n"+
         "• 翻译进行期间保持屏幕常亮，全部翻译完成后恢复系统息屏设置\n\n"+
         "版本 0.2.2\n"+
         "• 修复 TranslateGemma 大模型导入时的 ZIP 格式兼容问题\n"+
