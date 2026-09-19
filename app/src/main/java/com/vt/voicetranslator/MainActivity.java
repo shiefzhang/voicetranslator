@@ -10,6 +10,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.*;
+import android.speech.tts.*;
 import android.text.*;
 import android.text.method.LinkMovementMethod;
 import android.text.style.BackgroundColorSpan;
@@ -24,6 +25,9 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public final class MainActivity extends Activity {
+    private static final String CHANGELOG="版本 0.3.0\n"+
+        "• 新增系统 TTS 翻译后朗读开关\n"+
+        "• TTS 播放期间暂停语音输入，播放结束后自动恢复\n\n"+
     private static final String CHANGELOG="版本 0.2.3\n"+
         "• 翻译进行期间保持屏幕常亮，全部翻译完成后恢复系统息屏设置\n\n"+
         "版本 0.2.2\n"+
@@ -53,6 +57,9 @@ public final class MainActivity extends Activity {
     private ScrollView sourceScroll,translatedScroll;
     private boolean syncingScroll;
     private Pipeline pipeline;
+    private TextToSpeech tts;
+    private boolean ttsReady;
+    private static final String TTS_ENABLED="ttsEnabled";
     private boolean importing,destroyed;
     private String importKind="",status="点击开始，停顿后自动翻译";
     private static final String SHARE_MODE="shareMode";
@@ -62,7 +69,7 @@ public final class MainActivity extends Activity {
     private final boolean[] scrollSelectionRequested={false,false};
     private final ArrayList<LinkedHashMap<String,String[]>> history=new ArrayList<>();
     private long session=0;
-    @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("vt",0);history.add(new LinkedHashMap<>());history.add(new LinkedHashMap<>());render();}
+    @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("vt",0);history.add(new LinkedHashMap<>());history.add(new LinkedHashMap<>());tts=new TextToSpeech(this,status->{ttsReady=status==TextToSpeech.SUCCESS;});render();}
     private int dp(float n){return (int)(n*getResources().getDisplayMetrics().density+0.5f);}
     private int index(String code){for(int i=0;i<codes.length;i++)if(codes[i].equals(code))return i;return 0;}
     private boolean reverseAvailable(){String target=other();return target.equals("zh")||target.equals("ja")||target.equals("ko")||target.equals("en");}
@@ -119,6 +126,7 @@ public final class MainActivity extends Activity {
     private void update(){if(page==2||sourceView==null)return;SpannableStringBuilder a=new SpannableStringBuilder(),b=new SpannableStringBuilder();int focusSource=-1,focusTranslation=-1,highlight=Color.rgb(255,244,179);String focus=focusedKeys[page];
         for(Map.Entry<String,String[]> item:history.get(page).entrySet()){if(a.length()>0)a.append("\n");if(b.length()>0)b.append("\n");int sa=a.length(),sb=b.length();String key=item.getKey();String[] entry=item.getValue();a.append(rowText(entry[0]));b.append(rowText(entry[1]));if(a.length()>sa)a.setSpan(rowSelector(page,key),sa,a.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);if(b.length()>sb)b.setSpan(rowSelector(page,key),sb,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);if(key.equals(focus)){focusSource=sa;focusTranslation=sb;if(a.length()>sa){a.setSpan(new BackgroundColorSpan(highlight),sa,a.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);a.setSpan(new ForegroundColorSpan(Color.rgb(58,45,0)),sa,a.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}if(b.length()>sb){b.setSpan(new BackgroundColorSpan(highlight),sb,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);b.setSpan(new ForegroundColorSpan(Color.rgb(58,45,0)),sb,b.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}}}
         if(!drafts[page].isEmpty()){if(a.length()>0)a.append("\n");int start=a.length();a.append(drafts[page]);a.setSpan(new ForegroundColorSpan(muted),start,a.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}String sourceText=a.length()==0?"转写文本将显示在这里":a.toString(),translationText=b.length()==0?"翻译文本将显示在这里":b.toString();boolean sourceChanged=!sourceText.contentEquals(sourceView.getText()),translationChanged=!translationText.contentEquals(translatedView.getText()),focusChanged=!focus.equals(renderedFocus[page]),userSelection=scrollSelectionRequested[page];renderedFocus[page]=focus;scrollSelectionRequested[page]=false;sourceView.setText(a.length()==0?"转写文本将显示在这里":a);translatedView.setText(b.length()==0?"翻译文本将显示在这里":b);if(userSelection&&focusSource>=0)scrollToFocus(focusSource,focusTranslation);else{if(sourceChanged)scrollSourceToLatest();if(focusTranslation>=0&&(translationChanged||focusChanged))scrollTranslationToFocus(focusTranslation);}statusView.setText(status);if(recordButton!=null)recordButton.setText(pipeline==null?"开始翻译":pipeline.isRecording()?"停止翻译":"处理中…");}
+    private void speak(String text,int targetPage){if(!ttsReady||tts==null){if(pipeline!=null)pipeline.resumeInput();return;}Locale locale=other().equals("fr")?Locale.FRENCH:other().equals("de")?Locale.GERMAN:other().equals("ru")?new Locale("ru"):other().equals("ja")?Locale.JAPANESE:other().equals("ko")?Locale.KOREAN:Locale.US;tts.setLanguage(locale);tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){public void onStart(String id){}public void onDone(String id){ui(()->{if(pipeline!=null)pipeline.resumeInput();});}public void onError(String id){ui(()->{if(pipeline!=null)pipeline.resumeInput();});}});tts.speak(text,TextToSpeech.QUEUE_FLUSH,null,"vt-"+System.nanoTime());}
     private void setTranslationScreenAwake(boolean awake){
         if(awake)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -132,7 +140,7 @@ public final class MainActivity extends Activity {
             public void state(String s){ui(()->{status=s;update();});}
             public void draft(String s){ui(()->{drafts[targetPage]=s;update();});}
             public void focus(long n){ui(()->{focusedKeys[targetPage]=id+":"+n;update();});}
-            public void sentence(long n,String source,String translation){ui(()->{history.get(targetPage).put(id+":"+n,new String[]{source,translation});if(history.get(targetPage).size()>=200&&pipeline!=null)pipeline.stop();update();});}
+            public void sentence(long n,String source,String translation){ui(()->{history.get(targetPage).put(id+":"+n,new String[]{source,translation});if(prefs.getBoolean(TTS_ENABLED,false)&&!translation.endsWith("▌")&&!translation.startsWith("翻译中")&&!translation.startsWith("等待")&&!translation.startsWith("翻译失败")&&!translation.equals("已取消")&&pipeline!=null){pipeline.pauseInput();speak(translation,targetPage);}if(history.get(targetPage).size()>=200&&pipeline!=null)pipeline.stop();update();});}
             public void done(){ui(()->{setTranslationScreenAwake(false);pipeline=null;if(!status.startsWith("错误")&&!status.startsWith("录音错误"))status="录音已停止 · 点击开始新的翻译";render();});}
         });pipeline.start();status="正在准备模型…";render();
     }
@@ -142,7 +150,7 @@ public final class MainActivity extends Activity {
         TextView title=text("设置",30,ink);title.setTypeface(null,Typeface.BOLD);title.setPadding(dp(24),dp(22),dp(24),dp(22));body.addView(title);divider(body);
         ScrollView scroll=new ScrollView(this);LinearLayout list=vertical();scroll.addView(list);body.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout pause=vertical();pause.setPadding(dp(24),dp(18),dp(24),dp(14));LinearLayout pauseTitle=new LinearLayout(this);pauseTitle.addView(text("停顿时间",17,ink),new LinearLayout.LayoutParams(0,-2,1));TextView pv=text(prefs.getInt("pause",800)/1000f+" 秒",17,accent);pauseTitle.addView(pv);pause.addView(pauseTitle);SeekBar seek=new SeekBar(this);seek.setMax(17);seek.setProgress((prefs.getInt("pause",800)-300)/100);seek.setProgressTintList(ColorStateList.valueOf(accent));seek.setThumbTintList(ColorStateList.valueOf(accent));seek.setContentDescription("停顿时间，0.3 到 2 秒");pause.addView(seek,new LinearLayout.LayoutParams(-1,dp(42)));seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onProgressChanged(SeekBar s,int n,boolean user){int ms=300+n*100;pv.setText(ms/1000f+" 秒");if(user)prefs.edit().putInt("pause",ms).apply();}public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}});list.addView(pause);divider(list);
-        row(list,"主语言",names[index(main())],()->language("main"));row(list,"翻译语言",names[index(other())],()->language("other"));row(list,"分享内容",shareModeLabels[prefs.getInt(SHARE_MODE,2)],this::shareMode);
+        row(list,"主语言",names[index(main())],()->language("main"));row(list,"翻译语言",names[index(other())],()->language("other"));row(list,"分享内容",shareModeLabels[prefs.getInt(SHARE_MODE,2)],this::shareMode);row(list,"翻译后朗读",prefs.getBoolean(TTS_ENABLED,false)?"开启":"关闭",()->{prefs.edit().putBoolean(TTS_ENABLED,!prefs.getBoolean(TTS_ENABLED,false)).apply();render();});
         modelRow(list,"转写模型包","asr");modelRow(list,"翻译模型包","translation");
         LinearLayout themes=vertical();themes.setPadding(dp(24),dp(18),dp(24),dp(20));themes.addView(text("界面风格",18,ink));LinearLayout choices=new LinearLayout(this);choices.setPadding(0,dp(14),0,0);String[] keys={"dark","fresh","warm"},labels={"深色","清爽","暖色"};int[] colors={Color.rgb(37,43,57),Color.rgb(231,241,255),Color.rgb(252,237,207)};
         for(int i=0;i<3;i++){final String key=keys[i];Button b=button(labels[i],false);b.setTextColor(i==0?Color.WHITE:Color.rgb(35,54,82));b.setBackground(shape(colors[i],prefs.getString("theme","fresh").equals(key)?accent:line));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(66),1);if(i>0)lp.leftMargin=dp(10);choices.addView(b,lp);b.setOnClickListener(v->{prefs.edit().putString("theme",key).apply();render();});}themes.addView(choices);list.addView(themes);

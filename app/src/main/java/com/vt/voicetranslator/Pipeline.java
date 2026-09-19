@@ -28,7 +28,7 @@ final class Pipeline {
     private final AtomicReference<Draft> latest=new AtomicReference<>();
     private final AtomicInteger pendingAsr=new AtomicInteger();
     private final AtomicLong generation=new AtomicLong();
-    private volatile boolean recording,backlogPaused,stopRequested,captureDone,asrDone,cancelled,recognizing;
+    private volatile boolean recording,backlogPaused,stopRequested,captureDone,asrDone,cancelled,recognizing,ttsPaused;
     private volatile AudioRecord recorder;
     private long nextId;
     Pipeline(File asr,File mt,String source,String target,int pauseMs,Listener l){
@@ -37,6 +37,8 @@ final class Pipeline {
     }
     void start(){new Thread(this::run,"vt-session").start();}
     boolean isRecording(){return recording;}
+    void pauseInput(){ttsPaused=true;}
+    void resumeInput(){ttsPaused=false;}
     void stop(){stopRequested=true;recording=false;AudioRecord r=recorder;if(r!=null){try{r.stop();}catch(Exception ignored){}}}
     void cancel(){cancelled=true;stop();LocalLlm.cancel();}
     private String recognize(OfflineRecognizer asr,float[] pcm){
