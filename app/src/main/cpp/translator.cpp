@@ -29,7 +29,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_vt_voicetranslator_LocalLlm_load(JNIE
     if(!model){fail(e,"翻译模型加载失败");return;}
     // Keep cores available for audio capture and SenseVoice.  The Java caller
     // also runs this context at background scheduler priority.
-    auto c=llama_context_default_params();c.n_ctx=2048;c.n_batch=512;c.n_ubatch=256;c.n_threads=2;c.n_threads_batch=2;
+    auto c=llama_context_default_params();c.n_ctx=2048;c.n_batch=512;c.n_ubatch=256;c.n_threads=2;c.n_threads_batch=2;c.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_ENABLED;c.type_k=GGML_TYPE_Q8_0;c.type_v=GGML_TYPE_Q8_0;
     ctx=llama_init_from_model(model,c);if(!ctx){free_model();fail(e,"无法创建翻译上下文");return;}
     model_path=requested;model_engine=requested_engine;llama_set_abort_callback(ctx,[](void*){return cancelled.load();},nullptr);
 }
@@ -97,7 +97,7 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_vt_voicetranslator_LocalLlm_tra
                 if(cancelled){llama_sampler_free(sampler);throw std::runtime_error("翻译已取消");}
                 llama_token t=llama_sampler_sample(sampler,ctx,-1);if(llama_vocab_is_eog(v,t)){ended=true;break;}
                 char small[256];int n=llama_token_to_piece(v,t,small,sizeof(small),0,false);if(n>=0)generated.append(small,n);else {std::vector<char> b(-n);n=llama_token_to_piece(v,t,b.data(),(int)b.size(),0,false);if(n>0)generated.append(b.data(),n);}
-                if(on_partial&&(i%4==3)){jbyteArray partial=e->NewByteArray((jsize)generated.size());e->SetByteArrayRegion(partial,0,(jsize)generated.size(),reinterpret_cast<const jbyte*>(generated.data()));e->CallVoidMethod(progress,on_partial,partial);e->DeleteLocalRef(partial);if(e->ExceptionCheck()){e->ExceptionClear();llama_sampler_free(sampler);throw std::runtime_error("更新译文显示失败");}}
+                if(on_partial&&(i%2==1)){jbyteArray partial=e->NewByteArray((jsize)generated.size());e->SetByteArrayRegion(partial,0,(jsize)generated.size(),reinterpret_cast<const jbyte*>(generated.data()));e->CallVoidMethod(progress,on_partial,partial);e->DeleteLocalRef(partial);if(e->ExceptionCheck()){e->ExceptionClear();llama_sampler_free(sampler);throw std::runtime_error("更新译文显示失败");}}
                 auto batch=llama_batch_get_one(&t,1);if(llama_decode(ctx,batch)!=0){llama_sampler_free(sampler);throw std::runtime_error("翻译推理失败");}
             }
             llama_sampler_free(sampler);if(!ended)throw std::runtime_error("译文超过输出上限，请缩短句子后重试");if(generated.empty())throw std::runtime_error("模型没有返回译文");return generated;
