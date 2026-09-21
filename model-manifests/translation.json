@@ -6,7 +6,7 @@
   "kind": "translation",
   "engine": "llama-qwen2",
   "runtime": "llama.cpp b9631",
-  "languages": ["zh", "ja", "ko", "en"],
+  "languages": ["zh", "ja", "ko", "en", "yue"],
   "contextSize": 2048,
   "promptVersion": "script-constrained-fewshot-v2",
   "source": "https://modelscope.cn/models/Qwen/Qwen2.5-3B-Instruct-GGUF"

@@ -34,7 +34,7 @@ final class ModelPackages {
             if(m.getInt("schemaVersion")!=1||!kind.equals(m.getString("kind")))throw new IOException("模型包类型不符");
             String engine=m.getString("engine");boolean supported=kind.equals("asr")?engine.equals("sherpa-sensevoice"):engine.equals("llama-qwen2")||engine.equals("llama-gemma3");if(!supported)throw new IOException("暂不支持此模型引擎");
             String id=m.getString("id");if(!id.matches("[a-z0-9][a-z0-9._-]{0,79}"))throw new IOException("模型包 ID 无效");
-            Set<String> languages=new HashSet<>();JSONArray la=m.getJSONArray("languages");for(int i=0;i<la.length();i++)languages.add(la.getString(i));if(la.length()!=4||!languages.equals(new HashSet<>(Arrays.asList("zh","ja","ko","en"))))throw new IOException("模型包必须支持中日韩英四语");
+            Set<String> languages=new HashSet<>();JSONArray la=m.getJSONArray("languages");for(int i=0;i<la.length();i++)languages.add(la.getString(i));Set<String> required=new HashSet<>(Arrays.asList("zh","ja","ko","en","yue"));if(la.length()!=required.size()||!languages.equals(required))throw new IOException(kind.equals("asr")?"转写模型包必须支持中日韩英粤五语":"翻译模型包必须支持中日韩英粤五语");
             JSONArray fs=m.getJSONArray("files");Map<String,JSONObject> files=new HashMap<>();long total=0;boolean license=false;for(int i=0;i<fs.length();i++){JSONObject f=fs.getJSONObject(i);String p=f.getString("path");long size=f.getLong("size");if(!safe(p)||p.equals("manifest.json")||files.put(p,f)!=null||size<0||size>MAX||!f.getString("sha256").matches("[a-f0-9]{64}"))throw new IOException("模型清单无效");total+=size;license|=p.startsWith("licenses/");}
             String[] req=kind.equals("asr")?new String[]{"model.int8.onnx","tokens.txt","silero_vad.onnx"}:new String[]{"model.gguf"};for(String p:req)if(!files.containsKey(p))throw new IOException("缺少 "+p);if(!license||total>MAX)throw new IOException("缺少许可或模型过大");if(base.getUsableSpace()<total+64L*1024*1024)throw new IOException("存储空间不足，解包需要 "+(total/1024/1024)+" MB");
             if(!staging.mkdir())throw new IOException("无法创建解包目录");Set<String> names=new HashSet<>();
@@ -63,7 +63,7 @@ final class ModelPackages {
                 if(!supported)throw new IOException("暂不支持此模型引擎");
                 String id=m.getString("id");if(!id.matches("[a-z0-9][a-z0-9._-]{0,79}"))throw new IOException("模型包 ID 无效");
                 Set<String> languages=new HashSet<>();JSONArray la=m.getJSONArray("languages");for(int i=0;i<la.length();i++)languages.add(la.getString(i));
-                if(la.length()!=4||!languages.equals(new HashSet<>(Arrays.asList("zh","ja","ko","en"))))throw new IOException("模型包必须支持中日韩英四语");
+                Set<String> required=new HashSet<>(Arrays.asList("zh","ja","ko","en","yue"));if(la.length()!=required.size()||!languages.equals(required))throw new IOException(kind.equals("asr")?"转写模型包必须支持中日韩英粤五语":"翻译模型包必须支持中日韩英粤五语");
                 JSONArray fs=m.getJSONArray("files");Map<String,JSONObject> files=new HashMap<>();long total=0;
                 if(fs.length()>127)throw new IOException("文件过多");
                 boolean license=false;

@@ -50,12 +50,12 @@ static bool script_ok(const std::string& s,const std::string& target){
         else return false;
         i+=n;kana|=cp>=0x3040&&cp<=0x30ff;hangul|=cp>=0xac00&&cp<=0xd7a3;cjk|=cp>=0x4e00&&cp<=0x9fff;
     }
-    if(target=="Chinese")return !kana&&!hangul&&cjk;
+    if(target=="Chinese"||target=="Cantonese")return !kana&&!hangul&&cjk;
     if(target=="Japanese")return kana&&!hangul;
     if(target=="Korean")return hangul&&!kana;
     return !kana&&!hangul&&!cjk;
 }
-static std::string language_name(const std::string& code){if(code=="zh")return "Chinese";if(code=="ja")return "Japanese";if(code=="ko")return "Korean";if(code=="en")return "English";if(code=="fr")return "French";if(code=="de")return "German";if(code=="ru")return "Russian";throw std::runtime_error("不支持的语言代码");}
+static std::string language_name(const std::string& code){if(code=="zh")return "Chinese";if(code=="ja")return "Japanese";if(code=="ko")return "Korean";if(code=="yue")return "Cantonese";if(code=="en")return "English";if(code=="fr")return "French";if(code=="de")return "German";if(code=="ru")return "Russian";throw std::runtime_error("不支持的语言代码");}
 extern "C" JNIEXPORT jbyteArray JNICALL Java_com_vt_voicetranslator_LocalLlm_translate(JNIEnv* e,jclass,jbyteArray source,jbyteArray from,jbyteArray to,jobject progress){
     std::lock_guard<std::mutex> l(gate);
     try{
@@ -63,11 +63,11 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_vt_voicetranslator_LocalLlm_tra
         if(cancelled)throw std::runtime_error("翻译已取消");
         auto v=llama_model_get_vocab(model);
         const std::string from_name=bytes(e,from),to_name=bytes(e,to);
-        auto native=[](const std::string& n){if(n=="Chinese")return std::string("中文");if(n=="Japanese")return std::string("日本語");if(n=="Korean")return std::string("한국어");if(n=="French")return std::string("Français");if(n=="German")return std::string("Deutsch");if(n=="Russian")return std::string("Русский");return std::string("English");};
+        auto native=[](const std::string& n){if(n=="Chinese")return std::string("中文");if(n=="Japanese")return std::string("日本語");if(n=="Korean")return std::string("한국어");if(n=="Cantonese")return std::string("粤语");if(n=="French")return std::string("Français");if(n=="German")return std::string("Deutsch");if(n=="Russian")return std::string("Русский");return std::string("English");};
         auto hello=[](const std::string& n){if(n=="Chinese")return std::string("你好。");if(n=="Japanese")return std::string("こんにちは。");if(n=="Korean")return std::string("안녕하세요.");return std::string("Hello.");};
         auto book=[](const std::string& n){if(n=="Chinese")return std::string("这是一本书。");if(n=="Japanese")return std::string("これは本です。");if(n=="Korean")return std::string("이것은 책입니다.");return std::string("This is a book.");};
         auto hospital=[](const std::string& n){if(n=="Chinese")return std::string("最近的医院在哪里？");if(n=="Japanese")return std::string("一番近い病院はどこですか？");if(n=="Korean")return std::string("가장 가까운 병원은 어디인가요?");return std::string("Where is the nearest hospital?");};
-        auto rule=[](const std::string& n){if(n=="Chinese")return std::string("只使用简体中文，禁止日语假名和韩文。");if(n=="Japanese")return std::string("日本語だけを使用してください。必ず日本語の仮名を使ってください。");if(n=="Korean")return std::string("한국어만 사용하고 반드시 한글로 쓰세요. 일본어 가나와 영어 단어를 쓰지 마세요.");if(n=="French")return std::string("Use French only.");if(n=="German")return std::string("Use German only.");if(n=="Russian")return std::string("Use Russian Cyrillic only.");return std::string("Use English only.");};
+        auto rule=[](const std::string& n){if(n=="Chinese")return std::string("只使用简体中文，禁止日语假名和韩文。");if(n=="Japanese")return std::string("日本語だけを使用してください。必ず日本語の仮名を使ってください。");if(n=="Korean")return std::string("한국어만 사용하고 반드시 한글로 쓰세요. 일본어 가나와 영어 단어를 쓰지 마세요.");if(n=="Cantonese")return std::string("Use Cantonese only. Use traditional Chinese characters and Cantonese wording.");if(n=="French")return std::string("Use French only.");if(n=="German")return std::string("Use German only.");if(n=="Russian")return std::string("Use Russian Cyrillic only.");return std::string("Use English only.");};
         const bool gemma=model_engine=="llama-gemma3";
         const std::string target_name=gemma?language_name(to_name):to_name;
         std::string prefix,suffix,pair=model_engine+":"+from_name+">"+to_name;

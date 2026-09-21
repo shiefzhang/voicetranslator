@@ -10,7 +10,8 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from fetch import sha256
 
-LANGUAGES = ['zh', 'ja', 'ko', 'en']
+LANGUAGES = ['zh', 'ja', 'ko', 'en', 'yue']
+ASR_LANGUAGES = LANGUAGES
 REQUIRED = {'asr': ['model.int8.onnx', 'tokens.txt', 'silero_vad.onnx'],
             'translation': ['model.gguf']}
 MAX_BYTES = 3 * 1024**3
@@ -23,8 +24,9 @@ def validate_manifest(m):
         raise ValueError('Unsupported schema/kind')
     if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,79}', m.get('id', '')):
         raise ValueError('Invalid package id')
-    if sorted(m.get('languages', [])) != sorted(LANGUAGES):
-        raise ValueError('Package must support exactly zh, ja, ko, en')
+    expected = ASR_LANGUAGES if m.get('kind') == 'asr' else LANGUAGES
+    if sorted(m.get('languages', [])) != sorted(expected):
+        raise ValueError('Package must support exactly ' + ', '.join(expected))
     engines = {'asr': {'sherpa-sensevoice'},
                'translation': {'llama-qwen2', 'llama-gemma3'}}
     if m.get('engine') not in engines[m['kind']]: raise ValueError('Unsupported engine')

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "id": "sensevoice-four-language-int8-v1",
-  "name": "SenseVoice 中日韩英",
+  "name": "SenseVoice 中日韩英粤",
   "version": "1.0.0",
   "kind": "asr",
   "engine": "sherpa-sensevoice",
   "runtime": "sherpa-onnx 1.13.6",
-  "languages": ["zh", "ja", "ko", "en"],
+  "languages": ["zh", "ja", "ko", "en", "yue"],
   "sampleRate": 16000,
   "source": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models"
 }
