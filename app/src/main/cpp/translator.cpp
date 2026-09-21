@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <unistd.h>
 
 // Java owns a single serial inference worker. Cancellation never frees the model.
 static std::mutex gate;
@@ -29,7 +30,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_vt_voicetranslator_LocalLlm_load(JNIE
     if(!model){fail(e,"翻译模型加载失败");return;}
     // Keep cores available for audio capture and SenseVoice.  The Java caller
     // also runs this context at background scheduler priority.
-    auto c=llama_context_default_params();c.n_ctx=2048;c.n_batch=512;c.n_ubatch=256;c.n_threads=2;c.n_threads_batch=2;c.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_ENABLED;c.type_k=GGML_TYPE_Q8_0;c.type_v=GGML_TYPE_Q8_0;
+    auto c=llama_context_default_params();c.n_ctx=2048;c.n_batch=512;c.n_ubatch=256;int cores=(int)sysconf(_SC_NPROCESSORS_ONLN);if(cores<1)cores=4;int workers=cores<=4?2:cores-2;if(workers>6)workers=6;c.n_threads=workers;c.n_threads_batch=workers;c.flash_attn_type=LLAMA_FLASH_ATTN_TYPE_ENABLED;c.type_k=GGML_TYPE_Q8_0;c.type_v=GGML_TYPE_Q8_0;
     ctx=llama_init_from_model(model,c);if(!ctx){free_model();fail(e,"无法创建翻译上下文");return;}
     model_path=requested;model_engine=requested_engine;llama_set_abort_callback(ctx,[](void*){return cancelled.load();},nullptr);
 }
@@ -114,3 +115,6 @@ extern "C" JNIEXPORT jbyteArray JNICALL Java_com_vt_voicetranslator_LocalLlm_tra
 }
 extern "C" JNIEXPORT void JNICALL Java_com_vt_voicetranslator_LocalLlm_cancel(JNIEnv*,jclass){cancelled=true;}
 extern "C" JNIEXPORT void JNICALL Java_com_vt_voicetranslator_LocalLlm_close(JNIEnv*,jclass){std::lock_guard<std::mutex> l(gate);free_model();}
+
+
+

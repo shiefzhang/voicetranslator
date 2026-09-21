@@ -19,3 +19,7 @@ add_subdirectory(../../../../third_party/llama.cpp llama)
 add_library(vt-llama SHARED translator.cpp)
 target_link_libraries(vt-llama PRIVATE llama android log)
 target_link_options(vt-llama PRIVATE "-Wl,-z,max-page-size=16384" "-Wl,-z,common-page-size=16384")
+
+
+
+
