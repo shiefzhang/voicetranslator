@@ -9,3 +9,26 @@ model-work/
 dist/
 __pycache__/
 
+# 本机测试用模型包（.vtmodel）。单个 0.2~1.6 GB，本地共 2.6 GB，
+# 与安卓端一致：模型独立分发，不进仓库。
+# 必须写前导斜杠锚定仓库根！不带斜杠的 `models/` 会匹配任意层级，
+# 而 macOS 默认 core.ignorecase=true → 会连 ios/VoiceTranslator/Models/ 一起吃掉。
+/models/
+
+# --- iOS / Xcode ---
+# 工程文件本身要提交（ios/VoiceTranslator.xcodeproj/project.pbxproj 由脚本生成），
+# 但个人态与构建产物不提交。
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+DerivedData/
+# 通配不带斜杠结尾，同时覆盖 ios/build/ 与 ios/build-device/。
+# 注意：光写 ios/build/ 不够 —— 派生数据里除了 Build/ 还有
+# Index.noindex/ ModuleCache.noindex/ SDKExplicitPrecompiledModules/ 等
+# 数千个缓存文件（实测 3116 个、106 MB），它们不在 Build/ 之下。
+ios/build*/
+# 原生依赖产物（setup-ios-deps.sh 下载/编译到这里）
+ios/third_party/
+.DS_Store
+

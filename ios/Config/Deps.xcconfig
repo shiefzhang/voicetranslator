@@ -1,0 +1,22 @@
+// ============================================================================
+//  原生依赖开关 —— 由 scripts/setup-ios-deps.sh 生成/覆盖，请勿手工长期维护。
+//
+//  当前状态：**尚未构建原生依赖**。
+//  此时工程依然可以完整编译通过并启动，只是：
+//    - Silero VAD / SenseVoice ASR 不可用（VTVad.isAvailable() == NO）
+//    - llama.cpp 翻译不可用（VTLlama.isAvailable() == NO）
+//  界面会提示 "…原生库未集成，请先运行 scripts/setup-ios-deps.sh"。
+//
+//  构建完成后本文件会被写成类似：
+//    VT_DEPS_INCLUDE_PATHS = "$(SRCROOT)/third_party/sherpa-onnx/include" "$(SRCROOT)/third_party/llama/include"
+//    VT_DEPS_LIBRARY_PATHS = "$(SRCROOT)/third_party/sherpa-onnx/lib" "$(SRCROOT)/third_party/llama/lib"
+//    VT_DEPS_LDFLAGS       = -lsherpa-onnx-core -lonnxruntime -lllama -lggml -lggml-base
+//
+//  注意：这些库必须按 SDK 架构交叉编译出 iOS 静态库；
+//  sherpa-onnx 官方**没有**发布 iOS XCFramework，只能本地源码构建（见脚本）。
+// ============================================================================
+
+// 保持为空 = 未集成原生依赖。
+VT_DEPS_INCLUDE_PATHS =
+VT_DEPS_LIBRARY_PATHS =
+VT_DEPS_LDFLAGS =

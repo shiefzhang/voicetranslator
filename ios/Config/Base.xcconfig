@@ -1,0 +1,53 @@
+// VoiceTranslator iOS —— 工程级公共构建设置（Debug / Release 共用）。
+//
+// 本文件是工程（PBXProject）的 base configuration。Xcode 的取值优先级是
+// 「pbxproj 里显式写的设置」>「xcconfig」，所以：
+//   **凡是需要被 Deps.xcconfig 叠加的设置，都不要写进 pbxproj。**
+//
+// 依赖开关的写法：Deps.xcconfig 只负责填 `VT_DEPS_*` 三个变量，
+// 由本文件在下面统一拼装。这样顺序无关，也不会出现"赋值把 include 结果冲掉"的问题。
+
+// —— 真机签名 ——
+// 装到真机必须有一个 Team。写在这里而不是在 Xcode 里点选，是因为
+// `scripts/gen-ios-project.py` 会整体重写 project.pbxproj —— 你在 Xcode
+// 「Signing & Capabilities」里选的 Team 会被下次重新生成冲掉，而本文件它不碰。
+//
+// 取值就是 Team ID（10 位，形如 ABCDE12345）：
+//   Xcode → Settings → Accounts → 选中你的 Apple ID → 右侧团队列表里的 ID；
+//   或登录 https://developer.apple.com/account → Membership 查看。
+// 个人免费 Apple ID 也有 Team ID，签名有效期 7 天，过期重装即可。
+//
+// 填好这一行后，Xcode 里直接 ⌘R 就能装到真机；不填则只能在模拟器跑。
+// 不开这一行的效果与 Xcode 里「Team: None」完全等价。
+//
+// ⚠️ 必须写在这里而不是在 Xcode「Signing & Capabilities」里选：
+//    scripts/gen-ios-project.py 会整体重写 project.pbxproj，GUI 里选的
+//    Team 会被冲掉（2026-09-21 实测踩坑：重新生成后真机构建报
+//    "Signing for VoiceTranslator requires a development team"）。
+DEVELOPMENT_TEAM = 8E63E2MJB9
+
+// —— 原生依赖（sherpa-onnx / llama.cpp）的占位默认值 ——
+VT_DEPS_INCLUDE_PATHS =
+VT_DEPS_LIBRARY_PATHS =
+VT_DEPS_LDFLAGS =
+
+// 由 scripts/setup-ios-deps.sh 生成/覆盖。
+// 用 `#include?`（问号 = 文件不存在时静默跳过）：依赖还没构建时工程照样能编译，
+// Bridge 层的 `#if __has_include(...)` 会退化成 isAvailable = NO，界面给出提示。
+#include? "Deps.xcconfig"
+
+// 桥接头所在的目录（VTLlama.h / VTSherpa.h / VTZip.h）。
+// 后两条在依赖未构建时只是无效路径，没有副作用。
+HEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/VoiceTranslator/Bridge" "$(SRCROOT)/third_party/sherpa-onnx/include" "$(SRCROOT)/third_party/llama/include" $(VT_DEPS_INCLUDE_PATHS)
+
+LIBRARY_SEARCH_PATHS = $(inherited) $(VT_DEPS_LIBRARY_PATHS)
+
+// -lz：VTZip.mm 用 zlib 做流式 inflate（ZIP64 解包）。
+OTHER_LDFLAGS = $(inherited) -lz $(VT_DEPS_LDFLAGS)
+
+DEAD_CODE_STRIPPING = YES
+
+// App 图标：单尺寸 1024×1024（Xcode 14+ 起 actool 自动切全部规格）。
+// 图标源文件是安卓端的 res/drawable/app_icon.png（缩小为 1024 后放入
+// Assets.xcassets/AppIcon.appiconset/），两端视觉保持一致。
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
