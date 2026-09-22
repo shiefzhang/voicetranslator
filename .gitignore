@@ -32,3 +32,10 @@ ios/build*/
 ios/third_party/
 .DS_Store
 
+# --- WorkBuddy 本地目录 ---
+# memory/ 是本地工作日志（含本机绝对路径），不进仓库。
+# 若之后要把项目级技能共享给团队，改成忽略具体子目录、放行 skills/ 即可：
+#   .workbuddy/*
+#   !.workbuddy/skills/
+.workbuddy/
+
