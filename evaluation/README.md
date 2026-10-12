@@ -21,3 +21,23 @@
 报告写入 `dist/verification/translation-poc.json`。中→英、英→中分别判定：
 关键错误率相对 Qwen 降低至少 20%，或 P95 稳态延迟降低至少 35%，才产生
 `promote_opus: true`。预验证报告和未完成人工盲评的报告不得触发 App 默认引擎切换。
+
+## 评测生产 prompt 本身（不是换模型，而是调 prompt）
+
+换模型走上面的 `translation_poc.py` / `check-nmt-quality.py`；**改 prompt 结构**
+（few-shot 组数、system 措辞）走 `scripts/check-translation-quality.py`：
+它渲染的是 `translator.cpp` 的**生产 prompt**，按包内 manifest 的 `engine` 分派
+（Qwen 是 ChatML + few-shot，Gemma 是 `<bos><start_of_turn>` 单轮 —— 两族完全不同，
+详见该脚本 docstring）。
+
+```bash
+# 同用例、两个 shots 档位各跑一遍，逐条相减 prompt ms + 比 chrF
+python3 scripts/check-translation-quality.py models/<包>.vtmodel \
+    --dataset evaluation/zh_en_ja_sample.jsonl --compare-shots 3,1 \
+    --threads 2 --report dist/verification/shots-compare-3-1.json
+```
+
+> ⚠️ **门槛仍然适用：内置数据集（10 / 20 条）低于「每方向 ≥200 条」的正式要求，
+> 所以它的结论只能用来「否决」一个改动，不能用来「采纳」一个改动。**
+> 实例：裁 few-shot 3→1 在 20 条口径下看似无损，实测细节见
+> `.workbuddy/memory/ENGINEERING-NOTES.md` 附录 M.6。

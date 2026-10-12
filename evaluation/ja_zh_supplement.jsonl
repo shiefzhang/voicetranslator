@@ -1,0 +1,28 @@
+# 日→中补充评测语料（**非门禁级**）
+#
+# 为什么存在：仓库内置语料里 ja→zh 去重后只有 4 条（`evaluation/zh_en_ja_sample.jsonl`
+# 4 条 + `zh_ja_ko_sample.jsonl` 2 条，其中 2 条重复），判定粒度 25% —— 用来做
+# 「非官方直译 vs 官方两跳 pivot vs Qwen」的三方对比太粗，区分不出差异。
+#
+# ⚠️ **本文件的日语原文与中文参考均为此仓库自撰**，不是真机 ASR + 人工标注，
+#    条数（16）也远低于「每方向 ≥200 条」的正式要求。所以：
+#      · 它可以用来「看出量级差异」（比如某一侧明显更差）；
+#      · **不能**用来「采纳」一个改动（沿用 `evaluation/README.md` 的门槛口径）。
+#    正式结论仍以内置 4 条 + 后续真实语料为准。
+#
+{"id": "ja-zh-s01", "source_lang": "ja", "target_lang": "zh", "source": "今日は少し寒いですね。", "reference": "今天有点冷呢。", "critical_terms": [["今天"], ["冷"]]}
+{"id": "ja-zh-s02", "source_lang": "ja", "target_lang": "zh", "source": "財布をなくしてしまいました。", "reference": "我把钱包弄丢了。", "critical_terms": [["钱包"], ["丢", "不见", "掉", "失去"]]}
+{"id": "ja-zh-s03", "source_lang": "ja", "target_lang": "zh", "source": "週末は何をしますか。", "reference": "你周末要做什么？", "critical_terms": [["周末"], ["做", "干", "干什么", "干嘛"]]}
+{"id": "ja-zh-s04", "source_lang": "ja", "target_lang": "zh", "source": "この近くにコンビニはありますか。", "reference": "这附近有便利店吗？", "critical_terms": [["附近"], ["便利店"]]}
+{"id": "ja-zh-s05", "source_lang": "ja", "target_lang": "zh", "source": "熱があるので、今日は休みます。", "reference": "因为发烧了，今天休息。", "critical_terms": [["发烧", "发热", "热"], ["今天"], ["休息", "休", "请假"]]}
+{"id": "ja-zh-s06", "source_lang": "ja", "target_lang": "zh", "source": "会議は三時に始まります。", "reference": "会议三点开始。", "critical_terms": [["会议"], ["三点", "3点"], ["开始"]]}
+{"id": "ja-zh-s07", "source_lang": "ja", "target_lang": "zh", "source": "彼は日本語がとても上手です。", "reference": "他的日语说得非常好。", "critical_terms": [["日语"], ["好", "擅长", "棒", "厉害"]]}
+{"id": "ja-zh-s08", "source_lang": "ja", "target_lang": "zh", "source": "この料理は辛すぎます。", "reference": "这道菜太辣了。", "critical_terms": [["菜", "料理"], ["太", "过分"], ["辣"]]}
+{"id": "ja-zh-s09", "source_lang": "ja", "target_lang": "zh", "source": "明日は雨が降るかもしれません。", "reference": "明天可能会下雨。", "critical_terms": [["明天"], ["可能", "也许", "或许"], ["下雨", "雨"]]}
+{"id": "ja-zh-s10", "source_lang": "ja", "target_lang": "zh", "source": "すみません、もう一度言ってください。", "reference": "不好意思，请再说一遍。", "critical_terms": [["再", "重新", "又"], ["一遍", "一次"]]}
+{"id": "ja-zh-s11", "source_lang": "ja", "target_lang": "zh", "source": "私はまだ昼ご飯を食べていません。", "reference": "我还没吃午饭。", "critical_terms": [["还", "尚未", "没"], ["午饭", "午餐"]]}
+{"id": "ja-zh-s12", "source_lang": "ja", "target_lang": "zh", "source": "このホテルは駅から歩いて五分です。", "reference": "这家酒店离车站走路五分钟。", "critical_terms": [["酒店", "宾馆", "旅馆"], ["车站"], ["五分", "5分"]]}
+{"id": "ja-zh-s13", "source_lang": "ja", "target_lang": "zh", "source": "田中さんに伝言をお願いできますか。", "reference": "能帮我给田中带个话吗？", "critical_terms": [["田中"], ["带话", "留言", "转告", "传话", "捎话"]]}
+{"id": "ja-zh-s14", "source_lang": "ja", "target_lang": "zh", "source": "荷物をここに置いてもいいですか。", "reference": "我可以把行李放在这里吗？", "critical_terms": [["行李"], ["放"], ["这里", "这儿"]]}
+{"id": "ja-zh-s15", "source_lang": "ja", "target_lang": "zh", "source": "値段が思ったより高いです。", "reference": "价格比我想的贵。", "critical_terms": [["价格", "价钱"], ["贵"], ["比"]]}
+{"id": "ja-zh-s16", "source_lang": "ja", "target_lang": "zh", "source": "毎朝七時に起きて、走っています。", "reference": "我每天早上七点起床跑步。", "critical_terms": [["早上", "早晨", "每天早"], ["七点", "7点"], ["跑"]]}

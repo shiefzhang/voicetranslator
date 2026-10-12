@@ -24,8 +24,11 @@ def main():
     adb('install', '-r', str(ROOT/'app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'))
     remote = f'/sdcard/Android/data/{PACKAGE}/files'
     adb('shell', 'mkdir', '-p', remote)
-    for name in ('sensevoice-zh-ja-ko-en.vtmodel', 'qwen25-3b-zh-ja-ko-en.vtmodel'):
-        adb('push', str(ROOT/'dist/models'/name), remote+'/'+name)
+    # 推送的是**当前推荐档**：ASR + 1.5B Q4_K_M（与 model-tiers.py 的 RECOMMENDED 一致）。
+    # 这里曾写 `dist/models/qwen25-3b-zh-ja-ko-en.vtmodel` —— 路径是 3B 时代留下的，
+    # 包本身也早已统一到 1.5B Q4_K_M，两处都改了。
+    for name in ('sensevoice-zh-ja-ko-en.vtmodel', 'qwen25-1.5b-q4km-zh-ja-ko-en-yue.vtmodel'):
+        adb('push', str(ROOT/'models'/name), remote+'/'+name)
     wavs = ROOT/'model-work/upstream/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs'
     for code in ('zh', 'ja', 'ko', 'en'):
         adb('push', str(wavs/(code+'.wav')), remote+'/'+code+'.wav')

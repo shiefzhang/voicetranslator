@@ -1,0 +1,20 @@
+{"id":"zh-en-001","source_lang":"zh","target_lang":"en","source":"最近的地铁站在哪里？","reference":"Where is the nearest subway station?","critical_terms":[["nearest"],["subway","metro"],["where"]]}
+{"id":"zh-en-002","source_lang":"zh","target_lang":"en","source":"我不要去机场。","reference":"I do not want to go to the airport.","critical_terms":[["not","don't","do not"],["airport"]]}
+{"id":"zh-en-003","source_lang":"zh","target_lang":"en","source":"请在下午三点十五分叫一辆出租车。","reference":"Please call a taxi at 3:15 p.m.","critical_terms":[["3:15","three fifteen"],["taxi","cab"]]}
+{"id":"zh-en-004","source_lang":"zh","target_lang":"en","source":"总共是一百二十八元五角。","reference":"The total is 128 yuan and 50 fen.","critical_terms":[["128","one hundred and twenty-eight"],["50","fifty"],["yuan"]]}
+{"id":"zh-en-005","source_lang":"zh","target_lang":"en","source":"我的名字是陈晓明。","reference":"My name is Chen Xiaoming.","critical_terms":[["Chen Xiaoming"]]}
+{"id":"en-zh-001","source_lang":"en","target_lang":"zh","source":"Where is the nearest subway station?","reference":"最近的地铁站在哪里？","critical_terms":[["最近"],["地铁"],["哪里","何处"]]}
+{"id":"en-zh-002","source_lang":"en","target_lang":"zh","source":"Do not add sugar to the coffee.","reference":"咖啡里不要加糖。","critical_terms":[["不","别"],["糖"],["咖啡"]]}
+{"id":"en-zh-003","source_lang":"en","target_lang":"zh","source":"The train leaves at 7:42 tomorrow morning.","reference":"火车明天早上七点四十二分出发。","critical_terms":[["明天"],["7:42","七点四十二"],["火车"]]}
+{"id":"en-zh-004","source_lang":"en","target_lang":"zh","source":"The medicine costs 36 dollars and 20 cents.","reference":"这种药售价三十六美元二十美分。","critical_terms":[["36","三十六"],["20","二十"],["美元"]]}
+{"id":"en-zh-005","source_lang":"en","target_lang":"zh","source":"Please take me to 18 Nanjing Road.","reference":"请带我去南京路十八号。","critical_terms":[["南京路"],["18","十八"]]}
+{"id":"zh-ja-001","source_lang":"zh","target_lang":"ja","source":"请问洗手间在哪里？","reference":"お手洗いはどこですか？","critical_terms":[["トイレ","お手洗い","化粧室"],["どこ"]]}
+{"id":"zh-ja-002","source_lang":"zh","target_lang":"ja","source":"这个周末你有空吗？我想请你吃饭。","reference":"今週末は空いていますか？ご飯をご馳走したいです。","critical_terms":[["週末"],["空い","暇"],["ご飯","食事","食べ"]]}
+{"id":"zh-ja-003","source_lang":"zh","target_lang":"ja","source":"我要一杯热咖啡，谢谢。","reference":"熱いコーヒーを一杯ください。","critical_terms":[["コーヒー"],["熱い","ホット"],["一杯","1杯"]]}
+{"id":"zh-ja-004","source_lang":"zh","target_lang":"ja","source":"请在明天早上八点叫我起床。","reference":"明日の朝八時に起こしてください。","critical_terms":[["明日"],["八時","8時"],["起こ"]]}
+{"id":"zh-ja-005","source_lang":"zh","target_lang":"ja","source":"请不要在这里吸烟。","reference":"ここでタバコを吸わないでください。","critical_terms":[["タバコ","煙草","喫煙"],["ここ"],["ないで","ください"]]}
+{"id":"zh-ja-006","source_lang":"zh","target_lang":"ja","source":"这趟电车去东京站吗？","reference":"この電車は東京駅に行きますか？","critical_terms":[["電車"],["東京駅"],["行き","止まり","着き"]]}
+{"id":"ja-zh-001","source_lang":"ja","target_lang":"zh","source":"すみません、駅までの道を教えていただけますか。","reference":"不好意思，能告诉我去车站的路吗？","critical_terms":[["车站","站"],["路","道"]]}
+{"id":"ja-zh-002","source_lang":"ja","target_lang":"zh","source":"この薬は一日三回飲んでください。","reference":"这个药请一天吃三次。","critical_terms":[["药"],["三次","3次","三回"],["一天","每天","每日"]]}
+{"id":"ja-zh-003","source_lang":"ja","target_lang":"zh","source":"明日の朝八時に起こしてください。","reference":"请明天早上八点叫我起床。","critical_terms":[["明天"],["八点","8点"],["叫","醒","起床"]]}
+{"id":"ja-zh-004","source_lang":"ja","target_lang":"zh","source":"この電車は東京駅に止まりますか。","reference":"这趟电车在东京站停吗？","critical_terms":[["电车"],["东京站"],["停"]]}

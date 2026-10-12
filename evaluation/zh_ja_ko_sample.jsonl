@@ -1,0 +1,13 @@
+{"id":"zh-ja-001","source_lang":"zh","target_lang":"ja","source":"请问洗手间在哪里？","reference":"お手洗いはどこですか？","critical_terms":[["トイレ","お手洗い","化粧室"],["どこ"]]}
+{"id":"zh-ja-002","source_lang":"zh","target_lang":"ja","source":"这个周末你有空吗？我想请你吃饭。","reference":"今週末は空いていますか？ご飯をご馳走したいです。","critical_terms":[["週末"],["空い","暇"],["ご飯","食事","食べ"]]}
+{"id":"zh-ja-003","source_lang":"zh","target_lang":"ja","source":"我要一杯热咖啡，谢谢。","reference":"熱いコーヒーを一杯ください。","critical_terms":[["コーヒー"],["熱い","ホット"],["一杯","1杯"]]}
+{"id":"zh-ja-004","source_lang":"zh","target_lang":"ja","source":"请在明天早上八点叫我起床。","reference":"明日の朝八時に起こしてください。","critical_terms":[["明日"],["八時","8時"],["起こ"]]}
+{"id":"zh-ko-001","source_lang":"zh","target_lang":"ko","source":"请问洗手间在哪里？","reference":"화장실이 어디예요?","critical_terms":[["화장실"],["어디"]]}
+{"id":"zh-ko-002","source_lang":"zh","target_lang":"ko","source":"这个周末你有空吗？我想请你吃饭。","reference":"이번 주말에 시간 있어요? 밥을 사고 싶어요.","critical_terms":[["주말"],["시간"],["밥","식사","먹"]]}
+{"id":"zh-ko-003","source_lang":"zh","target_lang":"ko","source":"总共是多少钱？","reference":"모두 얼마예요?","critical_terms":[["얼마"]]}
+{"id":"ja-zh-001","source_lang":"ja","target_lang":"zh","source":"すみません、駅までの道を教えていただけますか。","reference":"不好意思，能告诉我去车站的路吗？","critical_terms":[["车站","站"],["路","道"]]}
+{"id":"ja-zh-002","source_lang":"ja","target_lang":"zh","source":"この薬は一日三回飲んでください。","reference":"这个药请一天吃三次。","critical_terms":[["药"],["三次","3次","三回"],["一天","每天","每日"]]}
+{"id":"ko-zh-001","source_lang":"ko","target_lang":"zh","source":"이 옷은 너무 비쌉니다.","reference":"这件衣服太贵了。","critical_terms":[["衣服","衣"],["贵"]]}
+{"id":"ko-zh-002","source_lang":"ko","target_lang":"zh","source":"내일 아침 일곱 시에 깨워 주세요.","reference":"请明天早上七点叫醒我。","critical_terms":[["明天","明日"],["七点","7点"],["叫","醒"]]}
+{"id":"en-ja-001","source_lang":"en","target_lang":"ja","source":"Where is the nearest hospital?","reference":"一番近い病院はどこですか？","critical_terms":[["病院"],["どこ"],["近い"]]}
+{"id":"ja-en-001","source_lang":"ja","target_lang":"en","source":"明日の会議は何時からですか。","reference":"What time does tomorrow's meeting start?","critical_terms":[["meeting"],["tomorrow"],["time"]]}
