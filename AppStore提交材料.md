@@ -54,8 +54,8 @@ WHAT TO LOOK AT
 | 主分类 | — | 工具 / Utilities |
 | 次分类 | — | 效率 / Productivity |
 | 关键词 | ≤ 100 字符 | `离线,翻译,语音,录音,转写,中日,中英,粤语,韩语,同传,会议,旅行,私密` |
-| 支持 URL | 必填 | `<https://your-site/support>` |
-| 隐私政策 URL | 必填 | `<https://your-site/privacy>` |
+| 支持 URL | 必填 | `https://shiefzhang.github.io/voicetranslator/support.html` |
+| 隐私政策 URL | 必填 | `https://shiefzhang.github.io/voicetranslator/privacy.html` |
 | 年龄分级 | — | 4+（无用户生成内容、无广告、无内购） |
 
 **描述草稿：**
@@ -141,7 +141,8 @@ zhangxuefeng@batonsoft.com
 - [x] 确认 `DEVELOPMENT_TEAM = 8E63E2MJB9` 是**付费**开发者账号
       （已确认：`O=Shanghai Batonsoft Co,. Ltd.`，该 Team 下已有 5 个 App Store 分发描述文件）
 - [x] `zhangxuefeng@batonsoft.com` 已在审核备注、隐私政策页与支持页里替换占位符
-- [ ] 隐私政策页已上线，URL 可访问（GitHub Pages 待开启）
+- [x] 隐私政策页已上线，URL 可访问
+      （`https://shiefzhang.github.io/voicetranslator/privacy.html` / `.../support.html`，均返回 200）
 - [ ] 两套截图已备齐
 - [ ] TestFlight 内测跑过一轮：麦克风授权、连续录音、朗读、缺包提示
 - [x] 可执行文件 `__TEXT` 段合计 < 500 MB（`size -m <X.app>/VoiceTranslator`）
