@@ -28,8 +28,8 @@ HOW TO TEST THE OTHER PAIRS
 2. Find the "Model packages" section — it names exactly which package is
    missing.
 3. Import a .vtmodel file via the Files app or AirDrop.
-   If you need a ready-to-import package, contact us at <your-email> and we
-   will send a download link.
+   If you need a ready-to-import package, contact us at
+   zhangxuefeng@batonsoft.com and we will send a download link.
 
 The app never crashes or hangs when a model is missing: it always shows a
 clear message naming the missing package and offering a "Go to Settings"
@@ -114,7 +114,7 @@ App Store Connect 必填。这个 App 反而是最好写的 —— 直接托管�
 如本政策有变更，我们会在应用更新说明中告知。
 
 七、联系方式
-<your-email>
+zhangxuefeng@batonsoft.com
 ```
 
 ---
@@ -134,16 +134,18 @@ App Store Connect 必填。这个 App 反而是最好写的 —— 直接托管�
 
 ## 5. 提交前检查清单
 
-- [ ] `ios/PrivacyInfo.xcprivacy` 存在，且 `ls <X.app>/PrivacyInfo.xcprivacy` 能验到
-- [ ] `scripts/gen-ios-project.py` 已包含隐私清单引用（否则下次重跑生成脚本会静默丢失）
-- [ ] `ios/Info.plist` 有 `ITSAppUsesNonExemptEncryption = false`
-- [ ] 版本号 `1.0.0` / `1`，且 `ios/VoiceTranslator.xcodeproj/project.pbxproj` 已同步
-- [ ] 确认 `DEVELOPMENT_TEAM = 8E63E2MJB9` 是**付费**开发者账号
-- [ ] `<your-email>` 已在审核备注与隐私政策里替换成本人邮箱
-- [ ] 隐私政策页已上线，URL 可访问
+- [x] `ios/PrivacyInfo.xcprivacy` 存在，且 `ls <X.app>/PrivacyInfo.xcprivacy` 能验到
+- [x] `scripts/gen-ios-project.py` 已包含隐私清单引用（否则下次重跑生成脚本会静默丢失）
+- [x] `ios/Info.plist` 有 `ITSAppUsesNonExemptEncryption = false`
+- [x] 版本号 `1.0.0` / `1`，且 `ios/VoiceTranslator.xcodeproj/project.pbxproj` 已同步
+- [x] 确认 `DEVELOPMENT_TEAM = 8E63E2MJB9` 是**付费**开发者账号
+      （已确认：`O=Shanghai Batonsoft Co,. Ltd.`，该 Team 下已有 5 个 App Store 分发描述文件）
+- [x] `zhangxuefeng@batonsoft.com` 已在审核备注、隐私政策页与支持页里替换占位符
+- [ ] 隐私政策页已上线，URL 可访问（GitHub Pages 待开启）
 - [ ] 两套截图已备齐
 - [ ] TestFlight 内测跑过一轮：麦克风授权、连续录音、朗读、缺包提示
-- [ ] 可执行文件 `__TEXT` 段合计 < 500 MB（`size -m <X.app>/VoiceTranslator`）
+- [x] 可执行文件 `__TEXT` 段合计 < 500 MB（`size -m <X.app>/VoiceTranslator`）
+      （实测 archive 内 25.4 MB）
 - [ ] iPad 分屏 / 旋转 / 动态字号真机验证过
 - [ ] 若上中国大陆区：ICP 备案已办妥（App Store Connect 合规信息页复核当前口径）
-- [ ] `scripts/tests/` 回归全绿
+- [x] `scripts/tests/` 回归全绿（188 passed）
