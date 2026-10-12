@@ -121,7 +121,7 @@ if [ -z "$UDID" ]; then
   UDID="${line%% *}"
   echo "==> 设备：$line"
 else
-  echo "==> 设备：$UDID（手动指定）"
+  echo "==> 设备：${UDID}（手动指定）"
 fi
 
 # —— 2. 构建 + 签名 ——
@@ -195,21 +195,49 @@ echo "    架构 $(lipo -archs "$APP_PATH/VoiceTranslator" 2>/dev/null || echo '
      "· 最低系统 $(plutil -extract MinimumOSVersion raw "$APP_PATH/Info.plist" 2>/dev/null || echo '?')"
 
 # —— 3. 安装 ——
-# 注意：安装流程末尾经常出现
+# ⚠️ 退出码**不能无条件吞掉**。已知的良性失败只有一种：
 #     Error 0xe800002e: Could not receive a message from the device. AMDeviceLookupApplications
-# 那是 ios-deploy 装完之后回查应用列表超时（设备忙或锁屏），**不影响安装结果**，
-# 所以这里吞掉退出码，改由第 4 步的 `-e` 校验给出权威结论。
+# 那是 ios-deploy 装完之后回查应用列表超时（设备忙或锁屏），**不影响安装结果**。
+# 除此之外的失败（如 0xe800801c No code signature found）是**真的没装进去**。
+INSTALL_LOG="$(mktemp -t vt-ios-deploy)"
+trap 'rm -f "$INSTALL_LOG"' EXIT
 echo "==> 安装到设备"
-ios-deploy -i "$UDID" -b "$APP_PATH" || true
+INSTALL_RC=0
+ios-deploy -i "$UDID" -b "$APP_PATH" >"$INSTALL_LOG" 2>&1 || INSTALL_RC=$?
 
 # —— 4. 校验 ——
+# ⚠️ 这一步只能回答「设备上**有没有**这个 bundle id」，回答不了
+#    「装上去的是不是我刚编的这一份」。所以安装本身非 0 退出时结论**必须降级**：
+#    否则「旧版本还装着 + 新包没装进去」会被打印成「✔ 已安装（Debug 构建）」，
+#    而设备上跑的还是上一版 —— 正是本项目最忌讳的那类假绿灯。
 echo "==> 校验安装结果"
-if [ "$(ios-deploy -i "$UDID" -1 "$BUNDLE_ID" -e 2>/dev/null | tail -1)" = "true" ]; then
-  echo "✔ $BUNDLE_ID 已安装（$CONFIG 构建）"
-  echo "  接下来请在 iPad 上点开 App。"
-  echo "  首次启动若提示「未受信任的开发者」，去 设置 → 通用 → VPN与设备管理 里信任该证书。"
-else
+if [ "$(ios-deploy -i "$UDID" -1 "$BUNDLE_ID" -e 2>/dev/null | tail -1)" != "true" ]; then
   echo "✘ 校验失败：设备上没有找到 $BUNDLE_ID" >&2
   echo "  常见原因：iPad 锁屏、或安装过程中被拔线。" >&2
+  echo "  安装输出（末 15 行）：" >&2
+  tail -15 "$INSTALL_LOG" >&2
   exit 1
 fi
+
+LOCAL_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP_PATH/Info.plist" 2>/dev/null || echo '?')"
+LOCAL_BUILD="$(plutil -extract CFBundleVersion raw "$APP_PATH/Info.plist" 2>/dev/null || echo '?')"
+
+if [ "$INSTALL_RC" = "0" ]; then
+  echo "✔ ${BUNDLE_ID} 已安装（${CONFIG} 构建 · ${LOCAL_VERSION}/${LOCAL_BUILD}）"
+elif grep -q '0xe800002e' "$INSTALL_LOG"; then
+  # 唯一的良性路径：装完之后回查应用列表超时。设备端已确认 bundle 存在。
+  echo "✔ ${BUNDLE_ID} 已安装（${CONFIG} 构建 · ${LOCAL_VERSION}/${LOCAL_BUILD}）"
+  echo "  注：末尾的 AMDeviceLookupApplications 超时是已知良性现象。"
+else
+  echo "✘ 安装没有成功：ios-deploy 退出码 $INSTALL_RC" >&2
+  echo "  设备上**有** ${BUNDLE_ID}，但那只可能是**更早安装的一版** ——" >&2
+  echo "  无法确认刚编的 $LOCAL_VERSION($LOCAL_BUILD) 真的进去了。" >&2
+  echo "  安装输出（末 15 行）：" >&2
+  tail -15 "$INSTALL_LOG" >&2
+  echo "  提示：若本机用的是 CODE_SIGNING_ALLOWED=NO（无签名），真机一定装不上，" >&2
+  echo "        请改用 scripts/build-ios.sh --device（自动签名）。" >&2
+  exit 1
+fi
+
+echo "  接下来请在 iPad 上点开 App。"
+echo "  首次启动若提示「未受信任的开发者」，去 设置 → 通用 → VPN与设备管理 里信任该证书。"

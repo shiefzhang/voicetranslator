@@ -17,14 +17,17 @@
 - 部署目标 iOS 15.0（设计书 §1）；
 - Swift 语言模式 5（不是 6）：三线程 Pipeline 大量使用跨线程回调，
   在 Swift 6 严格并发下会变成硬错误，首期先保证可编译可跑，见 README 的说明；
-- ObjC++ 桥的三个 .mm 必须能被编译，但**不要求** sherpa-onnx / llama.cpp 已就位：
+- ObjC++ 桥的 .mm 必须能被编译，但**不要求** sherpa-onnx / llama.cpp 已就位：
   它们用 `#if __has_include(...)` 守卫，缺库时退化成 isAvailable = NO。
+- `native/nmt/` 下两端共享的 C++ 源码（OPUS-MT 推理核心）必须进 Sources 阶段 ——
+  见 SHARED_NATIVE。这些文件在 ios/ 之外，rglob 扫不到，要显式收录。
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import plistlib
 import sys
 from pathlib import Path
 
@@ -34,11 +37,59 @@ PROJECT_NAME = "VoiceTranslator"
 BUNDLE_ID = "com.shiefzhang.voicetranslator"
 DEPLOYMENT_TARGET = "15.0"
 SWIFT_VERSION = "5.0"
-MARKETING_VERSION = "0.2.3"
-CURRENT_PROJECT_VERSION = "6"
+
+# 版本号以 ios/Info.plist 为唯一数据源：那两个键在 Info.plist 里写的是**字面量**
+# （不是 $(MARKETING_VERSION)），运行时生效的是它们。这里读出来回填 pbxproj，
+# 免得两处各写一份、日后对不上 —— 之前就发生过 pbxproj 停留在 0.2.3 的情况。
+def _info_plist_version() -> tuple[str, str]:
+    try:
+        with (IOS_DIR / "Info.plist").open("rb") as handle:
+            plist = plistlib.load(handle)
+    except Exception as exc:
+        raise SystemExit(f"读不到 ios/Info.plist 的版本号：{exc}")
+    return (str(plist.get("CFBundleShortVersionString", "0.0")),
+            str(plist.get("CFBundleVersion", "0")))
+
+
+MARKETING_VERSION, CURRENT_PROJECT_VERSION = _info_plist_version()
 
 # 目录展示顺序（未列出的目录按字母序排在后面）
 GROUP_ORDER = ["App", "Core", "Engines", "Models", "Views", "Bridge"]
+
+# 两端共享的 C++ 源码 —— 在 ios/VoiceTranslator/ 之外，但必须进 Sources 阶段。
+#
+# `native/nmt/` 是 OPUS-MT(Marian) 的推理核心：一份实现两端共用，
+# Android 侧由 app/src/main/cpp/CMakeLists.txt 引同一批文件，iOS 侧必须也编进来
+# —— 否则 VTOpusNmt.mm 里的 vt_opus_load / vt_opus_translate 全是未定义符号。
+#
+# 刻意**显式列文件**而不是扫目录：native/nmt/ 下还躺着 vt_opus_probe.cc，
+# 那是 macOS 上的验收探针，带 main()，编进来会跟 App 的 main 直接冲突。
+#
+# 表结构：{相对 ios/VoiceTranslator 的目录: [该目录下要编的文件名]}。
+# 用相对路径而不是绝对路径，换台机器重跑本脚本才能生成同一份工程（UUID 由路径派生，
+# 一旦掺进绝对路径，uuid 会随 checkout 位置漂移，git diff 就永远不干净）。
+SHARED_NATIVE = {
+    "../../native/nmt": ["vt_opus.cc"],
+    "../../native/nmt/third_party/simple-sentencepiece/ssentencepiece/csrc":
+        ["ssentencepiece.cc"],
+}
+
+# 这批文件必须按 **C++17** 编，而工程其余部分是 gnu++20（见 shared_project 里
+# 的 CLANG_CXX_LANGUAGE_STANDARD）。原因在 vendor 进来的 simple-sentencepiece：
+#
+#   threadpool.h:45  ->  std::future<typename std::result_of<F(Args...)>::type>
+#
+# `std::result_of` 在 **C++20 里已被移除**，libc++ 里直接找不到，于是报
+# `no type named 'result_of' in namespace 'std'`，并连带把整个头文件解析带崩 ——
+# 后面会跟着冒出几十条「unknown type name 'path'」「use of undeclared identifier」
+# 「incomplete type」之类的**假错误**（实测 2026-09-28：同一份文件 gnu++20 报
+# 20+ 条错，gnu++17 零错）。排查时别被那一大串带偏，只看第一条。
+#
+# 为什么不干脆把工程降到 gnu++17：iOS 侧只有这几个 .cc 是 C++，其余是 Swift / ObjC++，
+# 降标准对它们没意义，却会悄悄改掉 ObjC++ 那边的语义。用 per-file 的
+# COMPILER_FLAGS 精确打在 PBXBuildFile 上，也与 Android 侧一致
+# （app/src/main/cpp/CMakeLists.txt 是 CMAKE_CXX_STANDARD 17）。
+SHARED_NATIVE_FLAGS = "-std=gnu++17"
 
 SWIFT_EXTS = {".swift"}
 SOURCES_EXTS = {".swift", ".mm"}
@@ -148,6 +199,43 @@ def build(ios_dir: Path) -> str:
         assets_uuid = uid("fileref", "Assets.xcassets")
         assets_build_uuid = uid("buildfile", "Assets.xcassets")
 
+    # ---------- 内置模型包（v0.2.10：只有 asr 与 opus） ----------
+    #
+    # ⚠️ 必须是 **folder reference**（`lastKnownFileType = folder`），不能是 group：
+    # group 会把目录**压平**成 bundle 根，于是 asr/manifest.json 与 opus/manifest.json
+    # 撞名、后一个静默覆盖前一个。判据：`find X.app/BundledModels -name manifest.json`
+    # 应该每个 kind 各有一份；只剩一份就是被压平了。
+    #
+    # 内容与「内置哪几类」由 `scripts/model-tiers.py --emit` 决定（BUNDLED 表），
+    # 这里只负责把已存在的目录引用进工程。目录不存在时不引用（工程仍能生成）——
+    # 但 `scripts/build-ios.sh` 会硬拦「该有却没有」的情况，见那边的双向检查。
+    has_bundled = (ios_dir / "BundledModels").is_dir()
+    if has_bundled:
+        bundled_uuid = uid("fileref", "BundledModels")
+        bundled_build_uuid = uid("buildfile", "BundledModels")
+        if not (ios_dir / "BundledModels" / "index.json").is_file():
+            raise SystemExit(
+                "ios/BundledModels/ 存在但没有 index.json —— 先跑 "
+                "`python3 scripts/model-tiers.py --emit` 重建，别手工拼目录")
+
+    # ---------- 隐私清单（App Store 上架必需） ----------
+    #
+    # ⚠️ 必须落在 **bundle 根目录**（与 Info.plist 同级），Apple 才认。
+    # 自 2024-05-01 起，用到 required reason API 却不在清单里声明理由的构建，
+    # App Store Connect **直接拒收** —— 不是警告，是上传失败。本 App 命中的
+    # 只有 UserDefaults（理由 CA92.1，见 ios/PrivacyInfo.xcprivacy 的注解）。
+    #
+    # 为什么要在生成器里显式引用：本工程是**整体重写** pbxproj 的，手拖进 Xcode
+    # 的文件会在下次重跑本脚本时静默消失，而构建照常成功 —— 症状是「本地打包
+    # 一切正常、上传报缺隐私清单」，极难定位。判据是**产物**里有没有：
+    #   ls <X.app>/PrivacyInfo.xcprivacy
+    #
+    # 文件不存在时不引用（工程仍能生成），但 build-ios.sh 会在归档路径上拦这一条。
+    has_privacy = (ios_dir / "PrivacyInfo.xcprivacy").is_file()
+    if has_privacy:
+        privacy_uuid = uid("fileref", "PrivacyInfo.xcprivacy")
+        privacy_build_uuid = uid("buildfile", "PrivacyInfo.xcprivacy")
+
     # ---------- PBXFileReference ----------
     project.add(
         "PBXFileReference", base_xcconfig_uuid,
@@ -174,6 +262,37 @@ def build(ios_dir: Path) -> str:
             "PBXBuildFile", assets_build_uuid,
             ["\t\t\tisa = PBXBuildFile;", f"\t\t\tfileRef = {assets_uuid} /* Assets.xcassets */;"],
             "Assets.xcassets in Resources",
+        )
+
+    if has_bundled:
+        # ⚠️ `lastKnownFileType = folder`，别写成 folder.assetcatalog（那会走 Asset
+        # Catalog 编译器处理，整个目录被当成一个资源包）。
+        project.add(
+            "PBXFileReference", bundled_uuid,
+            ["\t\t\tisa = PBXFileReference;", "\t\t\tlastKnownFileType = folder;",
+             "\t\t\tpath = BundledModels;", "\t\t\tsourceTree = \"<group>\";"],
+            "BundledModels",
+        )
+        project.add(
+            "PBXBuildFile", bundled_build_uuid,
+            ["\t\t\tisa = PBXBuildFile;", f"\t\t\tfileRef = {bundled_uuid} /* BundledModels */;"],
+            "BundledModels in Resources",
+        )
+
+    if has_privacy:
+        # `text.plist.xml`：.xcprivacy 本体就是 XML plist。它进 Resources 阶段后
+        # 被**原样拷贝**到 bundle 根（不会被当 Info.plist 特殊处理 —— 只有名字
+        # 叫 Info.plist 的才走那套）。
+        project.add(
+            "PBXFileReference", privacy_uuid,
+            ["\t\t\tisa = PBXFileReference;", "\t\t\tlastKnownFileType = text.plist.xml;",
+             "\t\t\tpath = PrivacyInfo.xcprivacy;", "\t\t\tsourceTree = \"<group>\";"],
+            "PrivacyInfo.xcprivacy",
+        )
+        project.add(
+            "PBXBuildFile", privacy_build_uuid,
+            ["\t\t\tisa = PBXBuildFile;", f"\t\t\tfileRef = {privacy_uuid} /* PrivacyInfo.xcprivacy */;"],
+            "PrivacyInfo.xcprivacy in Resources",
         )
 
     project.add(
@@ -219,6 +338,50 @@ def build(ios_dir: Path) -> str:
             )
             build_refs[rel] = bf
 
+    # ---------- 两端共享的原生源码（见 SHARED_NATIVE）----------
+    #
+    # 这些文件在 ios/VoiceTranslator/ 之外，所以不走 collect_files 那套。
+    # 每个目录建一个 group（带 path），于是文件引用只用裸文件名，
+    # 不用把 `../../` 塞进 PBXFileReference.path —— 后者虽然也能解析，
+    # 但 Xcode 导航器里会显示成一长串相对路径，而且到处是踩坑的余地。
+    shared_refs: dict[str, str] = {}
+    shared_groups: list[str] = []
+    for group_rel in sorted(SHARED_NATIVE):
+        children = []
+        for name in sorted(SHARED_NATIVE[group_rel]):
+            # uid 的输入刻意用 `VoiceTranslator/<相对目录>/<文件名>` 形式：
+            # 与普通源码的 `fileref` 键（相对 ios/ 的 posix 路径）风格一致，
+            # 又天然不会跟 ios/ 下的同路径撞车。
+            key_str = f"VoiceTranslator/{group_rel}/{name}"
+            ref = uid("fileref", key_str)
+            project.add(
+                "PBXFileReference", ref,
+                ["\t\t\tisa = PBXFileReference;",
+                 "\t\t\tlastKnownFileType = sourcecode.cpp.cpp;",
+                 f"\t\t\tpath = {q(name)};", "\t\t\tsourceTree = \"<group>\";"],
+                name,
+            )
+            bf = uid("buildfile", key_str)
+            project.add(
+                "PBXBuildFile", bf,
+                ["\t\t\tisa = PBXBuildFile;",
+                 f"\t\t\tfileRef = {ref} /* {name} */;",
+                 # per-file C++ 标准，见 SHARED_NATIVE_FLAGS 的说明。
+                 f"\t\t\tsettings = {{COMPILER_FLAGS = \"{SHARED_NATIVE_FLAGS}\";}};"],
+                f"{name} in Sources",
+            )
+            shared_refs[key_str] = bf
+            children.append(ref)
+        gid = uid("group", "shared:" + group_rel)
+        shared_groups.append(gid)
+        project.add(
+            "PBXGroup", gid,
+            ["\t\t\tisa = PBXGroup;", "\t\t\tchildren = ("]
+            + [f"\t\t\t\t{c}," for c in children]
+            + ["\t\t\t);", f"\t\t\tpath = {q(group_rel)};", "\t\t\tsourceTree = \"<group>\";"],
+            Path(group_rel).name,
+        )
+
     # ---------- PBXGroup ----------
     def group_body(children: list[str]) -> list[str]:
         body = ["\t\t\tisa = PBXGroup;", "\t\t\tchildren = ("]
@@ -248,6 +411,7 @@ def build(ios_dir: Path) -> str:
 
     src_group_children = [dir_group_ids[d] for d in sort_group_keys(list(dir_group_ids))]
     src_group_children += [src_refs[key(p)] for p in tree.get("", [])]
+    src_group_children += shared_groups
     src_group = uid("group", SRC_DIR_NAME)
     project.add(
         "PBXGroup", src_group,
@@ -266,16 +430,23 @@ def build(ios_dir: Path) -> str:
         group_body([f"{src_group} /* {SRC_DIR_NAME} */",
                     f"{base_xcconfig_uuid} /* Base.xcconfig */",
                     f"{info_plist_uuid} /* Info.plist */",
+                    *([f"{privacy_uuid} /* PrivacyInfo.xcprivacy */"] if has_privacy else []),
                     *([f"{assets_uuid} /* Assets.xcassets */"] if has_assets else []),
+                    *([f"{bundled_uuid} /* BundledModels */"] if has_bundled else []),
                     f"{products_group} /* Products */"]),
         "",
     )
 
     # ---------- Build phases ----------
+    # Sources 阶段 = 普通源码（按 rel 排序）+ 共享原生源码（SHARED_NATIVE）。
+    sources_entries = [f"\t\t\t\t{build_refs[rel]} /* {Path(rel).name} in Sources */,"
+                       for rel in sorted(build_refs)]
+    sources_entries += [f"\t\t\t\t{shared_refs[k]} /* {Path(k).name} in Sources */,"
+                        for k in sorted(shared_refs)]
     project.add(
         "PBXSourcesBuildPhase", sources_phase,
         ["\t\t\tisa = PBXSourcesBuildPhase;", "\t\t\tbuildActionMask = 2147483647;", "\t\t\tfiles = ("]
-        + [f"\t\t\t\t{build_refs[rel]} /* {Path(rel).name} in Sources */," for rel in sorted(build_refs)]
+        + sources_entries
         + ["\t\t\t);", "\t\t\trunOnlyForDeploymentPostprocessing = 0;"],
         "Sources",
     )
@@ -286,8 +457,12 @@ def build(ios_dir: Path) -> str:
         "Frameworks",
     )
     resource_entries = []
+    if has_privacy:
+        resource_entries.append(f"\t\t\t\t{privacy_build_uuid} /* PrivacyInfo.xcprivacy in Resources */,")
     if has_assets:
         resource_entries.append(f"\t\t\t\t{assets_build_uuid} /* Assets.xcassets in Resources */,")
+    if has_bundled:
+        resource_entries.append(f"\t\t\t\t{bundled_build_uuid} /* BundledModels in Resources */,")
     project.add(
         "PBXResourcesBuildPhase", resources_phase,
         ["\t\t\tisa = PBXResourcesBuildPhase;", "\t\t\tbuildActionMask = 2147483647;",

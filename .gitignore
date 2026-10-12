@@ -4,7 +4,12 @@
 local.properties
 .tools/
 downloads/
-third_party/
+# 只忽略**仓库根**的 third_party/（bootstrap.py 下载的 llama.cpp 源码）。
+# ⚠️ 必须写前导斜杠：不带斜杠的 `third_party/` 匹配任意层级，会把
+# native/nmt/third_party/ 一起吃掉 —— 那是**构建必需源码**，不是下载产物
+# （app/src/main/cpp/CMakeLists.txt 直接引用其中的 ssentencepiece.cc 与
+# onnxruntime 头），丢了以后 clone 下来 Android 编译直接失败。
+/third_party/
 model-work/
 dist/
 __pycache__/
@@ -30,6 +35,18 @@ DerivedData/
 ios/build*/
 # 原生依赖产物（setup-ios-deps.sh 下载/编译到这里）
 ios/third_party/
+
+# 内置模型包（v0.2.10）：只有转写与专用翻译进 App，由
+# `scripts/model-tiers.py --emit` 生成 —— 是**生成物**，不进仓库。
+#   ① ios/BundledModels/                ~777 MB（解包后的只读目录）
+#   ② app/src/main/assets/bundled-models/  ~800 MB（两个 .vtmodel）
+# 「生成哪几类」写在 model-tiers.py 顶部的 BUNDLED 表里，通用翻译**不**内置。
+# ⚠️ 必须写前导斜杠锚定仓库根 —— 不带斜杠的 `bundled-models/` 会匹配任意层级。
+# 这里刻意**不**忽略 `models/`（源包）之外的东西：想确认内置产物是不是这一轮
+# 生成的，就跑 `python3 scripts/model-tiers.py --verify`，别靠 git status。
+/ios/BundledModels/
+/app/src/main/assets/bundled-models/
+
 .DS_Store
 
 # --- WorkBuddy 本地目录 ---
