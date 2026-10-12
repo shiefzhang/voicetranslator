@@ -20,5 +20,12 @@ final class Segmenter {
         if(silence>=pauseSamples||count>=16000*15)flush();
     }
     void flush(){if(count>0&&voiced>=2400)sink.sentence(Arrays.copyOf(current,count));count=0;silence=0;voiced=0;preCount=0;}
+    /**
+     * 丢弃当前半句，**不提交**。与 {@link #flush()} 的区别就是「不说出去」。
+     *
+     * 用在朗读暂停前后：播放会打断说话，前后两截语音拼成一句没有意义，
+     * 提交出去反而会得到一句牛头不对马嘴的译文。
+     */
+    void reset(){count=0;silence=0;voiced=0;preCount=0;}
     float[] snapshot(){return count>16000&&voiced>=2400?Arrays.copyOf(current,count):null;}
 }

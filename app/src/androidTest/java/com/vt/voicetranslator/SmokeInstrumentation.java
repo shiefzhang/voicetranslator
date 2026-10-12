@@ -16,7 +16,7 @@ public class SmokeInstrumentation extends Instrumentation {
         try{
             Context c=getTargetContext();File input=c.getExternalFilesDir(null);
             File asr=ModelPackages.install(c,Uri.fromFile(new File(input,"sensevoice-zh-ja-ko-en.vtmodel")),"asr",s->{});
-            File mt=ModelPackages.install(c,Uri.fromFile(new File(input,"qwen25-3b-zh-ja-ko-en.vtmodel")),"translation",s->{});
+            File mt=ModelPackages.install(c,Uri.fromFile(new File(input,"qwen25-1.5b-q4km-zh-ja-ko-en-yue.vtmodel")),"translation",s->{});
             report.put("packageImport","passed");save(report);
             JSONArray rows=new JSONArray();String[] codes={"zh","ja","ko","en"};
             for(String code:codes){

@@ -7,8 +7,8 @@ android {
         applicationId 'com.vt.voicetranslator'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.2.3'
+        versionCode 14
+        versionName '0.2.12'
         testInstrumentationRunner 'com.vt.voicetranslator.SmokeInstrumentation'
         ndk { abiFilters (project.findProperty('vtAbi') ?: 'arm64-v8a') }
         externalNativeBuild { cmake { cppFlags '-std=c++17'; arguments '-DANDROID_STL=c++_shared' } }
@@ -19,6 +19,12 @@ android {
             }
     }
     externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.31.5' } }
+    androidResources {
+        // 内置模型包（scripts/model-tiers.py --emit 拷进 assets/bundled-models/）。
+        // .vtmodel 内部是 STORED 的 zip，装载的又是已压缩过的 gguf / onnx，
+        // 让 aapt2 再 deflate 一遍纯属浪费时间，所以直接按原样打进 APK。
+        noCompress 'vtmodel'
+    }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     buildTypes { release { minifyEnabled false } }
 }
