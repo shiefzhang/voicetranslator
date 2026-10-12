@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen25-1.5b-q4km-zh-ja-ko-en-yue-v1",
+  "name": "Qwen2.5 1.5B Q4_K_M 中日韩英粤",
+  "version": "1.0.0",
+  "kind": "translation",
+  "engine": "llama-qwen2",
+  "runtime": "llama.cpp b9631",
+  "languages": ["zh", "ja", "ko", "en", "yue"],
+  "contextSize": 2048,
+  "promptVersion": "script-constrained-fewshot-v2",
+  "source": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF"
+}

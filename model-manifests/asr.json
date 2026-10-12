@@ -6,7 +6,7 @@
   "kind": "asr",
   "engine": "sherpa-sensevoice",
   "runtime": "sherpa-onnx 1.13.6",
-  "languages": ["zh", "ja", "ko", "en"],
+  "languages": ["zh", "ja", "ko", "en", "yue"],
   "sampleRate": 16000,
   "source": "https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models"
 }

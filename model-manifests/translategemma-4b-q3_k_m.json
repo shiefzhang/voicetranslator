@@ -6,7 +6,7 @@
   "kind": "translation",
   "engine": "llama-gemma3",
   "runtime": "llama.cpp b9631",
-  "languages": ["zh", "ja", "ko", "en"],
+  "languages": ["zh", "ja", "ko", "en", "yue"],
   "contextSize": 2048,
   "promptVersion": "translategemma-template-v1",
   "modality": "text-only",

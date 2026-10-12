@@ -46,7 +46,7 @@ def main():
             'This model is governed by the Gemma Terms of Use. Review the current terms at:\n'
             'https://ai.google.dev/gemma/terms\n',encoding='utf-8')
         manifest=ROOT/'model-manifests'/f'translategemma-4b-{folder}.json'
-        output=ROOT/'dist/models'/f'translategemma-4b-text-{folder}.vtmodel'
+        output=ROOT/'models'/f'translategemma-4b-text-{folder}.vtmodel'
         subprocess.run([sys.executable,str(ROOT/'scripts/model_pack.py'),'build',str(dest),str(manifest),str(output)],check=True)
     if not args.keep_f16:(work/'translategemma-4b-text-f16.gguf').unlink()
 

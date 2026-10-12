@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "opus-mt-zh-en-ja-v1",
+  "name": "OPUS-MT 中英日 专用翻译",
+  "version": "1.1.0",
+  "kind": "opus",
+  "engine": "opus-mt-marian",
+  "runtime": "onnxruntime 1.27.1",
+  "languages": [
+    "zh",
+    "ja",
+    "en"
+  ],
+  "routes": [
+    "en-zh",
+    "ja-en",
+    "zh-en",
+    "zh-ja"
+  ],
+  "idMode": {
+    "zh-en": "merged-vocab",
+    "en-zh": "merged-vocab",
+    "zh-ja": "native",
+    "ja-en": "merged-vocab"
+  },
+  "source": "https://huggingface.co/Helsinki-NLP",
+  "note": "模型由 scripts/pack-opus-models.py 生成；归属与许可见 licenses/THIRD-PARTY.txt"
+}
