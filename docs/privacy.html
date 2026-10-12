@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隐私政策 · 多国语音互译</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73;
+    --card: #f5f5f7; --line: #d2d2d7; --accent: #0071e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000; --fg: #f5f5f7; --muted: #a1a1a6;
+      --card: #1c1c1e; --line: #38383a; --accent: #2997ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 20px 96px;
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC",
+          "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 30px; line-height: 1.3; margin: 0 0 6px; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .meta { color: var(--muted); font-size: 13px; margin: 0 0 40px;
+          padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 19px; margin: 40px 0 10px; letter-spacing: -.01em; }
+  h2 .num { color: var(--accent); font-variant-numeric: tabular-nums;
+            margin-right: 8px; }
+  p { margin: 0 0 12px; }
+  ul { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  strong { font-weight: 600; }
+  .lead { background: var(--card); border-radius: 12px; padding: 20px 22px;
+          margin: 0 0 8px; }
+  .lead p:last-child { margin-bottom: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 56px 0 32px; }
+  .en { color: var(--muted); }
+  .en h2, .en p, .en li { font-size: 14.5px; }
+  .en h2 { color: var(--fg); font-size: 16px; margin: 28px 0 8px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 48px;
+           padding-top: 24px; border-top: 1px solid var(--line); }
+  code { background: var(--card); padding: 1px 6px; border-radius: 5px;
+         font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>隐私政策</h1>
+  <p class="sub">多国语音互译 · VoiceTranslator</p>
+  <p class="meta">生效日期：2026 年 10 月 12 日 &nbsp;·&nbsp; 最后更新：2026 年 10 月 12 日</p>
+
+  <div class="lead">
+    <p><strong>一句话概括：这个应用不收集你的任何数据。</strong></p>
+    <p>它没有账号、不联网、不包含任何统计或广告 SDK。语音识别与翻译全部在本机完成，
+       开发者无法获取你使用本应用的任何信息。</p>
+  </div>
+
+  <h2><span class="num">一</span>我们不收集任何数据</h2>
+  <p>本应用没有账号体系，不与任何服务器通信，不包含广告、分析或任何第三方统计 SDK。
+     应用内不存在任何形式的用户行为上报。</p>
+  <p>因此，我们也<strong>无法</strong>向任何第三方提供、出售或共享你的个人信息——
+     因为我们从未获得这些信息。</p>
+
+  <h2><span class="num">二</span>录音如何处理</h2>
+  <p>语音识别（ASR）与机器翻译（NMT）全部在你的设备本地完成，模型文件随应用一同分发。</p>
+  <ul>
+    <li>录音数据<strong>仅存在于内存中</strong>，用于当次识别；</li>
+    <li>处理完毕后即被丢弃，<strong>不会写入磁盘</strong>；</li>
+    <li><strong>不会离开你的设备</strong>，不存在任何上传行为。</li>
+  </ul>
+  <p>在飞行模式下，本应用的全部功能均可正常使用，这一点可以自行验证。</p>
+
+  <h2><span class="num">三</span>麦克风权限</h2>
+  <p>本应用仅在你<strong>主动点击录音按钮</strong>时请求麦克风权限，不会在后台录音。</p>
+  <p>你可以随时在系统的「设置 → 隐私与安全性 → 麦克风」中撤销授权。
+     撤销后仅录音相关功能不可用，其余功能不受影响。</p>
+
+  <h2><span class="num">四</span>模型包</h2>
+  <p>你可以自行导入扩展翻译模型文件（<code>.vtmodel</code>）。这些文件仅保存在本应用的
+     沙盒目录中，不会被上传到任何地方；你也可以随时在设置页中移除它们以回收存储空间。</p>
+
+  <h2><span class="num">五</span>儿童隐私</h2>
+  <p>本应用不收集任何数据，因此不涉及儿童个人信息（包括《儿童在线隐私保护法》COPPA
+     及《通用数据保护条例》GDPR 所定义的范畴）的收集与处理。</p>
+
+  <h2><span class="num">六</span>政策变更</h2>
+  <p>如本政策发生变更，我们会在应用更新的版本说明中告知。继续使用即表示接受更新后的政策。</p>
+
+  <h2><span class="num">七</span>联系方式</h2>
+  <p>如对本政策有任何疑问，请联系：<a href="mailto:REPLACE_ME_EMAIL">REPLACE_ME_EMAIL</a></p>
+
+  <hr>
+
+  <section class="en">
+    <h1 style="font-size:22px">Privacy Policy</h1>
+    <p class="sub">VoiceTranslator — Offline Speech Translation</p>
+    <p class="meta" style="margin-bottom:24px">Effective: October 12, 2026</p>
+
+    <p><strong>In one sentence: this app collects no data about you.</strong>
+       There is no account, no network access, and no analytics or advertising SDK.
+       Speech recognition and translation run entirely on your device.</p>
+
+    <h2>1. We collect nothing</h2>
+    <p>The app has no accounts and never contacts any server. It contains no
+       advertising, analytics, or third-party tracking SDK of any kind.</p>
+
+    <h2>2. How recordings are handled</h2>
+    <p>Speech recognition and translation happen on-device using models shipped
+       with the app. Audio exists in memory only for the duration of a single
+       utterance, is discarded immediately afterwards, is never written to disk,
+       and never leaves your device. All features work in Airplane Mode.</p>
+
+    <h2>3. Microphone permission</h2>
+    <p>The app requests microphone access only when you tap the record button.
+       It never records in the background. You may revoke access at any time in
+       Settings → Privacy &amp; Security → Microphone; only recording stops working.</p>
+
+    <h2>4. Model packages</h2>
+    <p>You may import optional translation model files (<code>.vtmodel</code>).
+       They are stored only inside the app sandbox, are never uploaded, and can
+       be removed at any time from Settings.</p>
+
+    <h2>5. Children's privacy</h2>
+    <p>Because the app collects no data at all, it does not collect personal
+       information from children as defined by COPPA or GDPR.</p>
+
+    <h2>6. Changes</h2>
+    <p>If this policy changes, we will note it in the app's release notes.</p>
+
+    <h2>7. Contact</h2>
+    <p><a href="mailto:REPLACE_ME_EMAIL">REPLACE_ME_EMAIL</a></p>
+  </section>
+
+  <footer>
+    © 2026 VoiceTranslator · <a href="./support.html">支持 / Support</a>
+  </footer>
+
+</main>
+</body>
+</html>
