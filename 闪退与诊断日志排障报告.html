@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 朗读后闪退真凶定位（v0.2.14）</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:760px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.half{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+pre .hl{color:#fca5a5;font-weight:700}
+pre .cm{color:#7c8ba1}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">ROOT CAUSE · 2026-10-08 · iOS v0.2.14 (17) · 症状：朗读完第一句后闪退</div>
+  <h1>真凶抓到了<br>真机崩溃报告指着同一行</h1>
+  <p class="lead">报：「在朗读完第一句后 app 闪退了，写日志调查一下原因」。</p>
+  <p>这一轮拿到了<b>决定性证据</b> —— 从 iPad 里拉出了两份真实崩溃报告，它们<b>指向同一条语句</b>：
+  录制切帧时的 <code>removeFirst</code> 越界。这不是推测，是设备自己写下来的现场。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="callout bad">
+<b>闪退原因：<code>AudioCapture.process(_:)</code> 里的一次数组越界断言。</b>
+<p>录制把采样切成一帧一帧往外回调；而回调的接收方在「朗读暂停」分支里会<b>同步</b>停掉录音、
+把缓冲清空。回调回来时，切帧循环手里那个下标已经指向<b>空缓冲</b>，
+循环退出后的 <code>removeFirst(下标)</code> 直接触发 Swift 运行时断言 → <code>SIGTRAP</code>。</p>
+<p>朗读一旦发生，这条路径<b>必走一遍</b> ⇒ 必崩。所以症状精确表现为「朗读完第一句就没了」。</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>项目</th><th>结果</th></tr>
+<tr><td>根因</td><td>录制切帧循环里<b>跨回调持有缓冲下标</b>，回调方把缓冲清空 → <code>removeFirst</code> 越界断言</td></tr>
+<tr><td>证据</td><td>两份真机崩溃报告（0.2.10 与 0.2.11）<b>触发线程同一行</b>：<code>RangeReplaceableCollection.removeFirst(_:)</code> ← <code>AudioCapture.process(_:)</code></td></tr>
+<tr><td>修复</td><td>顺序改为「先切完 → 先收缩缓冲 → 再逐帧回调」；回调方怎么清都伤不到</td></tr>
+<tr><td>版本 / 装机</td><td><b>0.2.14 (17)</b> 已装到 iPad mini 4（J96AP · iOS 15.8.8）</td></tr>
+<tr><td>判据</td><td><code>test_crash_diagnostics.py</code> <b>21 条</b>（本轮 +2）；负向验证：把真机崩溃现场注入源码 → 判据精确变红</td></tr>
+<tr><td>全套回归</td><td>9 个模块 / <b>169 条</b> / 全 OK；Java 语法 11/11</td></tr>
+</table>
+</div>
+</section>
+
+<section>
+<h2>一、崩溃现场（设备自己写下来的）</h2>
+
+<p>先解决「报告从哪来」。上一轮四条常规路子全不通，这次换 <code>pymobiledevice3</code> ——
+它走的是老的 lockdown 服务 <code>com.apple.crashreportcopymobile</code>，<b>不需要 iOS 17</b>，
+正好够到这台 15.8.8 的老 iPad。</p>
+
+<pre><span class="cm"># 列出 → 过滤 → 拉取</span>
+pymobiledevice3 crash ls
+pymobiledevice3 crash pull /tmp/vt-crash <span class="hl">--match "VoiceTranslator"</span></pre>
+
+<p>拿到两份，<b>跨两个版本、同一个点</b>：</p>
+
+<div class="table-wrap">
+<table>
+<tr><th>报告</th><th>版本</th><th>异常</th><th>触发线程的关键帧</th></tr>
+<tr><td><code>VoiceTranslator-2026-09-30-175659.ips</code></td>
+    <td>0.2.10<small>build 13</small></td>
+    <td><code>EXC_BREAKPOINT</code><small>SIGTRAP</small></td>
+    <td><code>removeFirst(_:)</code> ← <code>process(_:)</code> ← <code>closure #1 in AudioCapture.start()</code>
+        <small>当时还直接跑在 tap 回调栈上（AVAudioNodeTap 的 RealtimeMessenger）</small></td></tr>
+<tr><td><code>VoiceTranslator-2026-10-08-110512.ips</code></td>
+    <td>0.2.11<small>build 14</small></td>
+    <td><code>EXC_BREAKPOINT</code><small>SIGTRAP</small></td>
+    <td><code>removeFirst(_:)</code> ← <code>process(_:)</code> ← <code>closure #1 in closure #1 in AudioCapture.startOnQueue()</code>
+        <small>已改成派发到采集队列，照崩</small></td></tr>
+</table>
+</div>
+
+<div class="callout good">
+<b>为什么这份证据这么值钱：</b>两次崩溃相隔三周、跨两个版本，
+而中间的改动（把处理从 tap 回调栈挪到自建采集队列）<b>没有改变崩溃点</b>。
+这排除了「偶发的时序噪声」，坐实了是<b>代码里一条必然走到的越界</b>。
+</div>
+
+<p>10-08 那份的完整触发栈（节选）：</p>
+<pre>4  libswiftCore   <span class="hl">RangeReplaceableCollection.removeFirst(_:)</span>
+5  VoiceTranslator AudioCapture.process(_:)
+6  VoiceTranslator closure #1 in closure #1 in AudioCapture.startOnQueue()
+8  libdispatch     _dispatch_call_block_and_release
+10 libdispatch     _dispatch_lane_serial_drain
+12 libdispatch     _dispatch_workloop_worker_thread</pre>
+</section>
+
+<section>
+<h2>二、为什么会越界：一条必走的链</h2>
+
+<p>改动前的切帧是这样的（<code>AudioCapture.swift</code>）：</p>
+
+<pre>var offset = 0
+while pending.count - offset &gt;= Self.frameLength {
+    let frame = ContiguousArray(pending[offset..&lt;(offset + Self.frameLength)])
+    offset += Self.frameLength
+    <span class="hl">onFrame?(frame)</span>          <span class="cm">// ← 在循环里回调出去</span>
+}
+if offset &gt; 0 { <span class="hl">pending.removeFirst(offset)</span> }   <span class="cm">// ← 崩溃点</span></pre>
+
+<p>而 <code>onFrame</code> 的接收方在「朗读暂停」分支里做的是（<code>Pipeline.swift</code>）：</p>
+
+<pre>if stateLock.withLock({ playbackHold }) {
+    self.audio.stop()        <span class="cm">// ← 已在采集队列 ⇒ 立即执行</span>
+    ...
+    Thread.sleep(...)        <span class="cm">// 阻塞等朗读结束</span>
+    self.resumeCapture(...)  <span class="cm">// → audio.start()，又一次清缓冲</span>
+}</pre>
+
+<p>把两头接起来，崩溃就是这么发生的：</p>
+
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>发生了什么</th><th>缓冲状态</th></tr>
+<tr><td>1</td><td><code>process</code> 开始切帧，<code>offset</code> 累加到 512</td><td><code>pending</code> 有数据</td></tr>
+<tr><td>2</td><td>回调 <code>onFrame(frame)</code> 进入 Pipeline 的朗读暂停分支</td><td>—</td></tr>
+<tr><td>3</td><td><code>audio.stop()</code> —— <b>因为在同一条队列上，立即执行</b></td><td class="no">被清空</td></tr>
+<tr><td>4</td><td>阻塞等朗读读完，再 <code>audio.start()</code>（内部又一次清空）</td><td class="no">还是空</td></tr>
+<tr><td>5</td><td>回到循环：<code>0 - 512 &lt; 512</code> → 退出</td><td>空</td></tr>
+<tr><td>6</td><td><code>pending.removeFirst(512)</code> —— <b>空数组上取 512 个</b></td><td class="no">💥 SIGTRAP</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+关键在于 <b><code>stop()</code> / <code>start()</code> 在采集队列上是「立即执行」</b>。
+它们本来是为「别的线程调用」设计的（那时会排到队尾、不会插进 <code>process</code> 中间），
+但从 <code>onFrame</code> 里调进来时，我们是<b>站在同一条队列上</b>的 —— 于是插了个正着。
+</div>
+</section>
+
+<section>
+<h2>三、怎么修的</h2>
+
+<p>不去改「谁在回调里停了录音」（那是既有架构，改动面太大），
+而是让 <code>process</code> <b>不再跨过回调持有缓冲下标</b>：</p>
+
+<pre>var frames: [ContiguousArray&lt;Float&gt;] = []
+var offset = 0
+while pending.count - offset &gt;= Self.frameLength {
+    frames.append(ContiguousArray(pending[offset..&lt;(offset + Self.frameLength)]))
+    offset += Self.frameLength
+}
+<span class="ok">if offset &gt; 0 { pending.removeFirst(offset) }</span>   <span class="cm">// 先收缩干净</span>
+<span class="ok">for frame in frames { onFrame?(frame) }</span>          <span class="cm">// 再逐帧回调</span></pre>
+
+<p>回调之前，缓冲已经收拾完毕；回调方再清、再停、再启，都<b>碰不到</b>已经算好的这次切帧。
+语义完全不变（每帧仍然回调一次），只是把「结算」提前了。</p>
+
+<div class="callout good">
+<b>顺带说明 v0.2.13 那个改动是什么。</b>
+上一轮我把 <code>installTap</code> 的显式 <code>format:</code> 改成 <code>nil</code>，
+理由是「朗读来回切会话后格式可能不一致 → 抛 ObjC 异常 → SIGABRT」。
+那是一个<b>真实存在但这次没发生的隐患</b>（属于防御性加固），
+<b>不是本次闪退的原因</b>。真正的原因要等真机崩溃报告出来才看得见 ——
+这也正是上一轮补「落盘日志 + 崩溃捕获」的意义：<b>没有它，这一轮照样只能猜。</b>
+</div>
+</section>
+
+<section>
+<h2>四、证据</h2>
+
+<pre>全套回归      9 模块 / <span class="ok">169 条</span> / 全 OK   （上一轮 167，本轮 +2）
+Java 语法     11/11 ✓
+负向验证      把真机崩溃现场那段代码注入真实文件 → 目标判据精确变红
+              逐字节还原后全绿（sha256 比对一致）
+
+build-ios.sh --device  →  ** BUILD SUCCEEDED **
+  ✔ com.shiefzhang.voicetranslator 已安装（Debug 构建 · <span class="ok">0.2.14/17</span>）
+     iPad mini 4 / J96AP / iOS 15.8.8
+版本四层一致   Info.plist 0.2.14/17 = pbxproj MARKETING_VERSION = 装机产物读回值</pre>
+
+<p>本轮新增的两条判据（判据总数 19 → 21）：</p>
+<ul>
+<li><code>test_frame_callback_after_pending_is_trimmed</code> —— 盯<b>顺序</b>：<code>onFrame?(</code>
+    必须出现在 <code>pending.removeFirst(</code> <b>之后</b>，且帧必须先被收集起来。</li>
+<li><code>test_checker_rejects_callback_inside_the_loop</code> —— <b>自证</b>：把真机崩溃现场那段
+    代码喂给同一个断言函数，必须判红。</li>
+</ul>
+
+<div class="callout warn">
+写这条自证时先踩了一次坑：常量里漏了函数签名，判据抛的是「找不到 <code>process</code> 锚点」——
+<b>红是红了，但红错地方了</b>（那叫假红：前提没满足，而不是真发现了问题）。
+补上签名之后才是「因为顺序错而变红」。<b>「判据会红」和「判据因为正确的理由而红」是两件事。</b>
+</div>
+</section>
+
+<section>
+<h2>五、Android 侧有没有同样的问题</h2>
+<p><b>没有。</b>两端采集的形态不同：</p>
+<div class="table-wrap">
+<table>
+<tr><th>端</th><th>采集形态</th><th>会有这个问题吗</th></tr>
+<tr><td>iOS</td><td>tap 回调 <code>queue.async</code> 派发；切帧缓冲 <code>pending</code> 是<b>成员变量</b>；
+        回调从切帧循环里<b>发出去</b></td><td class="no">会 —— 回调期间缓冲可被外部清空</td></tr>
+<tr><td>Android</td><td>单线程 <code>while(recording)</code> 里 <code>read</code>；缓冲 <code>short[] buffer</code> 与计数
+        <code>have</code> 都是<b>栈上局部变量</b>；暂停分支末尾是 <code>continue</code> 回循环顶</td>
+        <td class="ok">不会 —— 没有成员缓冲、也没有「拿旧下标回去算」的机会</td></tr>
+</table>
+</div>
+<p>所以这一版只动 iOS，Android 版本号保持 0.2.12 不变。</p>
+</section>
+
+<section>
+<h2>六、还剩什么</h2>
+<div class="callout">
+<b>真机端到端仍需你人工跑一遍</b>：0.2.14 已装好 —— 开始翻译 → 说一句短话 → 等朗读完 →
+看会不会再闪退。<b>若仍崩</b>：重开 App → 设置 ›「导出诊断日志」→ 发回来，
+日志尾部就是现场（这一版已经带崩溃捕获）。<br>
+<b>注意</b>：真机崩溃报告的 <code>app_version</code> 会明确标出版本 ——
+请确认界面上显示的是 <b>0.2.14</b>，否则测的还是旧包。
+</div>
+</section>
+
+<footer>
+生成于 2026-10-08 · 对应 iOS v0.2.14 (17) · 根因证据：iPad mini 4 上的两份
+<code>VoiceTranslator-*.ips</code> 崩溃报告
+</footer>
+
+</main></body></html>

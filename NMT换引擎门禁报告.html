@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 专用 NMT 换引擎门禁实测</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">MEASURED · 2026-09-28 · 第 2 轮</div>
+  <h1>专用 NMT 换引擎：M2M 判死，OPUS-MT 通过</h1>
+  <p class="lead">把 <b>OPUS-MT 专向 int8（ONNX Runtime）</b>和现役 <b>Qwen2.5-1.5B Q4_K_M（生产 prompt）</b>在同一台机器、同一套 20 条语料、同一个判据下对撞，覆盖 <b>中↔英、中→日、日→中</b> 四个语向。</p>
+  <p>结论：<b>门禁通过（promote = True）</b> —— P50 <b>52 ms vs 1322 ms</b>，P95 降 <b>93.1%</b>；代价是关键错误率 <b>35% vs 30%</b>（20 条里 7 错 vs 6 错），且包体降到 <b>709 MB</b>。</p>
+  <p>09-24 那轮的结论「<b>专用 NMT 并不比 LLM 快</b>」<b>已被推翻</b>：那是 M2M-100-418M 独有的问题（12 层 × 48 个 KV 槽），不是 NMT 这一类的问题。详见第六节。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>快 25 倍</b>P50 52 vs 1322 ms<br><span class="muted">P95 102 vs 1495 ms（−93.1%）</span></div>
+  <div class="metric"><b>门禁通过</b>promote = True<br><span class="muted">靠延迟这一项达标，质量项为负</span></div>
+  <div class="metric"><b>包体 709 MB</b>vs Qwen 1117 MB<br><span class="muted">但只覆盖 4 个语向，Qwen 覆盖 20 个</span></div>
+  <div class="metric"><b>质量略逊</b>35% vs 30%<br><span class="muted">20 条里 7 错 vs 6 错，1 条之差；分语向互有胜负</span></div>
+</div>
+<div class="callout good">
+<b>关键澄清：许可不是上架的障碍。</b>现役 <b>Qwen2.5-1.5B 是 Apache-2.0</b>，本来就满足 App Store 商用要求；
+本轮新用的 OPUS-MT 各包也全部可商用（第 1 节逐包登记）。
+真正不可商用的是 <b>NLLB-200（CC-BY-NC-4.0）</b>—— 它不在技术栈里。
+所以<b>「为了能上架必须换引擎」这个前提不成立</b>；本轮换引擎换的是<b>速度</b>。
+</div>
+</section>
+
+<section>
+<h2>一、许可矩阵：谁真的挡着上架</h2>
+<p>逐个从 HuggingFace 模型卡核实（<code>cardData.license</code> 与 license tag 双重确认）。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>模型</th><th>许可</th><th>可商用 / 可上架</th><th>在本项目里的位置</th></tr></thead>
+<tbody>
+<tr><td><b>Qwen2.5-1.5B-Instruct</b></td><td><b>Apache-2.0</b></td><td class="ok">✅ 是</td><td><b>现役引擎</b></td></tr>
+<tr><td><code>opus-mt-zh-en</code></td><td>CC-BY-4.0</td><td class="ok">✅ 是</td><td>本轮实测</td></tr>
+<tr><td><code>opus-mt-en-zh</code></td><td>Apache-2.0</td><td class="ok">✅ 是</td><td>本轮实测</td></tr>
+<tr><td><code>opus-mt-ja-en</code></td><td>Apache-2.0</td><td class="ok">✅ 是</td><td>本轮实测（日→中的中转腿）</td></tr>
+<tr><td><code>opus-mt-tc-big-zh-ja</code></td><td>CC-BY-4.0</td><td class="ok">✅ 是</td><td>本轮实测</td></tr>
+<tr><td>M2M100-418M</td><td>MIT</td><td class="ok">✅ 是</td><td>09-24 实测对象（已否决）</td></tr>
+<tr><td>NLLB-200-distilled-600M</td><td><b>CC-BY-NC-4.0</b></td><td class="no">❌ 否</td><td>仅可做非商业研究参考</td></tr>
+</tbody></table></div>
+<div class="callout warn"><b>读法：</b>这张表里只有 NLLB 一行是红的，而它<b>不在</b>技术栈里。现役 Qwen 与全部 OPUS-MT 候选都是干净许可 —— <b>换引擎解决的不是合规问题。</b>
+<br>⚠️ OPUS-MT 的许可<b>逐包不同</b>（同系列的 zh-en 是 CC-BY-4.0、en-zh 却是 Apache-2.0），引入时必须逐包登记，不能一句「CC-BY」盖过去。</div>
+</section>
+
+<section>
+<h2>二、本轮覆盖的语向与实测体积</h2>
+<p>OPUS-MT 不是「一个引擎」，是<b>一个语向一个模型</b>。中/日/韩/英 12 向里官方只有 <b>7 向</b>；本轮只做其中与用户需求相关的 4 向。体积为 <code>encoder_model_int8.onnx</code> + <code>decoder_model_merged_int8.onnx</code> 的<b>本机实测字节数</b>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>语向</th><th>用的包</th><th>规模</th><th>本机 int8 实测</th><th>ONNX 来源</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td>zh→en</td><td><code>opus-mt-zh-en</code></td><td>base 77M</td><td>145.9 MB</td><td>自己转（原为 Xenova）</td><td class="ok">✅ 实测通过</td></tr>
+<tr><td>en→zh</td><td><code>opus-mt-en-zh</code></td><td>base 77M</td><td>145.9 MB</td><td>自己转（原为 Xenova）</td><td class="ok">✅ 实测通过</td></tr>
+<tr><td>zh→ja</td><td><code>opus-mt-tc-big-zh-ja</code></td><td>big 209M</td><td>278.3 MB</td><td><b>自己转</b>（官方无 ONNX）</td><td class="ok">✅ 实测通过</td></tr>
+<tr><td>ja→zh</td><td><b>官方没有</b> → pivot <code>ja-en</code>+<code>en-zh</code></td><td>base 77M ×2</td><td>139.3 + 145.9 MB（en-zh 复用）</td><td>自己转</td><td class="warn">⚠️ 两跳，质量最弱</td></tr>
+</tbody></table></div>
+<p><b>四个唯一包合计 709.3 MB</b>（zh-en + en-zh + ja-en + zh-ja）；对照现役单包 Qwen 是 1117.3 MB。</p>
+<div class="callout warn"><b>ja→zh 为什么不是直译：</b>逐个核过 Helsinki-NLP 在 HF 上的完整清单 —— 官方 <code>ja-*</code> 里<b>没有任何以 zh 为目标的模型</b>，<code>zh-*</code> 里中日向只有 <code>tc-big-zh-ja</code>（单向）。所以 <b>ja→zh 只能 pivot（日→英→中）</b>，两跳解码、误差累积。<b>这直接影响门禁结果</b>：ja-zh 是 OPUS 唯一明显落后的语向（第 3 节）。</div>
+<p class="muted">另：社区有反向模型（<code>shun89/opus-mt-ja-zh</code> 等，apache-2.0），但<b>无现成 ONNX、质量未验、非官方出品</b>，上架需自担风险，本轮未采用。</p>
+</section>
+
+<section>
+<h2>三、门禁实测：OPUS-MT 四向 vs 现役 Qwen</h2>
+<p>语料 <code>evaluation/zh_en_ja_sample.jsonl</code>（20 条：zh-en 5 / en-zh 5 / zh-ja 6 / ja-zh 4）。两侧都跑 <b>greedy</b>、4 线程、模型常驻且预热后再计时；译文用 <code>translation_poc</code> 的 <code>chrF</code> 与 <code>critical_terms</code> 判定（仓库既有定义，未另立标准）。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>引擎</th><th>关键错误率</th><th>平均 chrF</th><th>P50</th><th>P95</th><th>包体</th><th>装载</th></tr></thead>
+<tbody>
+<tr><td><b>OPUS-MT int8 / ORT</b><br><small>4 个专向包，无 prompt</small></td><td class="warn">35.00%</td><td>0.4792</td><td class="ok"><b>52 ms</b></td><td class="ok"><b>102 ms</b></td><td class="ok">709.3 MB</td><td class="ok">1.54 s</td></tr>
+<tr><td>Qwen2.5-1.5B Q4_K_M / llama.cpp<br><small>生产 prompt（3 组 few-shot）</small></td><td class="ok">30.00%</td><td class="ok">0.5406</td><td class="no">1322 ms</td><td class="no">1495 ms</td><td>1117.3 MB</td><td>5.08 s</td></tr>
+<tr><td>M2M100-418M INT8 / ORT<br><small>09-24 那一轮，同机同判据</small></td><td class="no">70.00%</td><td class="no">0.3706</td><td>1819 ms</td><td class="no">4995 ms</td><td>1.14 GB</td><td class="ok">4.05 s</td></tr>
+</tbody></table></div>
+
+<h3>门禁判定（沿用 <code>evaluation/README.md</code> 的规则）</h3>
+<p>规则：<b>关键错误率相对 Qwen 降 ≥20%，或 P95 延迟降 ≥35%</b> —— 满足其一才算 promote。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方向</th><th>OPUS 关键错误率</th><th>Qwen 关键错误率</th><th>关键错误率降幅</th><th>P95 降幅</th><th>是否 promote</th></tr></thead>
+<tbody>
+<tr><td>zh-en</td><td class="warn">20%</td><td class="warn">20%</td><td>0.00%</td><td class="ok">−96.89%</td><td class="ok">✅ 是</td></tr>
+<tr><td>en-zh</td><td class="warn">20%</td><td class="ok">0%</td><td class="no">−∞（对方零错）</td><td class="ok">−96.31%</td><td class="ok">✅ 是</td></tr>
+<tr><td>zh-ja</td><td class="ok">33%</td><td class="no">50%</td><td class="ok">+33.34%</td><td class="ok">−94.11%</td><td class="ok">✅ 是</td></tr>
+<tr><td>ja-zh</td><td class="no">75%</td><td class="warn">50%</td><td class="no">−50.00%</td><td class="ok">−80.79%</td><td class="ok">✅ 是</td></tr>
+<tr><td><b>全体</b></td><td><b>35%</b></td><td><b>30%</b></td><td class="no"><b>−16.67%</b></td><td class="ok"><b>−93.14%</b></td><td class="ok"><b>promote = True</b></td></tr>
+</tbody></table></div>
+<div class="callout bad"><b>必须说清楚 promote 是怎么来的：<u>质量项是负的</u>。</b>它是被 P95 延迟这一条（−93.14%）单独抬过线的。
+<br>而且 <b>20 条语料的判定粒度是 5%</b> —— 「35% vs 30%」等价于「7 错 vs 6 错」，<b>一个用例的差别，不构成显著差异</b>。
+<br>真要下结论，得按 <code>evaluation/README.md</code> 把语料补到每向 200 条。</div>
+
+<h3>逐语向延迟（P50）</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>语向</th><th>OPUS P50</th><th>Qwen P50</th><th>倍数</th><th>OPUS 结构</th></tr></thead>
+<tbody>
+<tr><td>zh-en</td><td class="ok">33 ms</td><td>1149 ms</td><td><b>35×</b></td><td>单跳</td></tr>
+<tr><td>en-zh</td><td class="ok">29 ms</td><td>1320 ms</td><td><b>46×</b></td><td>单跳</td></tr>
+<tr><td>zh-ja</td><td class="ok">72 ms</td><td>1420 ms</td><td><b>20×</b></td><td>单跳（但模型 209M，是 base 的 2.7 倍）</td></tr>
+<tr><td>ja-zh</td><td class="ok">69 ms</td><td>1405 ms</td><td><b>20×</b></td><td><b>pivot 两跳</b>（≈29+33 ms）</td></tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>四、译文逐条对照（20 条全列）</h2>
+<p>✓ / ✗ 是 <code>critical_terms</code> 命中判定，不是主观评分。两边同一套 term 定义，口径一致。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>用例</th><th>源句</th><th>参考</th><th>OPUS-MT</th><th>Qwen2.5-1.5B</th></tr></thead>
+<tbody>
+<tr><td>zh-en-001</td><td>最近的地铁站在哪里？</td><td>Where is the nearest subway station?</td><td class="ok">✓ Where's the nearest subway station?</td><td class="ok">✓ Where's the nearest metro station?</td></tr>
+<tr><td>zh-en-002</td><td>我不要去机场。</td><td>I do not want to go to the airport.</td><td class="ok">✓ I'm not going to the airport.</td><td class="ok">✓ I don't want to go to the airport.</td></tr>
+<tr><td>zh-en-003</td><td>请在下午三点十五分叫一辆出租车。</td><td>Please call a taxi at 3:15 p.m.</td><td class="ok">✓ Please call a taxi at 3:15 p.m.</td><td class="ok">✓ Please call a taxi at 3:15 p. m.</td></tr>
+<tr><td>zh-en-004</td><td>总共是一百二十八元五角。</td><td>The total is 128 yuan and 50 fen.</td><td class="warn">✗ The total is $128.50.<small>数字对、币种丢了（broke to $）</small></td><td class="warn">✗ It's a total of one hundred twenty-eight dollars and fifty cents.<small>币种错（元→dollars）</small></td></tr>
+<tr><td>zh-en-005</td><td>我的名字是陈晓明。</td><td>My name is Chen Xiaoming.</td><td class="ok">✓ My name is Chen Xiaoming.</td><td class="ok">✓ My name is Chen Xiaoming.</td></tr>
+<tr><td>en-zh-001</td><td>Where is the nearest subway station?</td><td>最近的地铁站在哪里？</td><td class="ok">✓ 最近的地铁站在哪里?</td><td class="ok">✓ 最近的地铁站在哪里？</td></tr>
+<tr><td>en-zh-002</td><td>Do not add sugar to the coffee.</td><td>咖啡里不要加糖。</td><td class="ok">✓ 不要在咖啡中添加糖。</td><td class="ok">✓ 不要在咖啡里加糖。</td></tr>
+<tr><td>en-zh-003</td><td>The train leaves at 7:42 tomorrow morning.</td><td>火车明天早上七点四十二分出发。</td><td class="no">✗ 明早7点42分火车起飞<small>起飞 ≠ 出发（实义错误）</small></td><td class="ok">✓ 明天早上7:42有一班火车。</td></tr>
+<tr><td>en-zh-004</td><td>The medicine costs 36 dollars and 20 cents.</td><td>这种药售价三十六美元二十美分。</td><td class="ok">✓ 医药要36美元和20美分</td><td class="ok">✓ 这药36美元20分。</td></tr>
+<tr><td>en-zh-005</td><td>Please take me to 18 Nanjing Road.</td><td>请带我去南京路十八号。</td><td class="ok">✓ 请带我去南京路18号</td><td class="ok">✓ 请带我去南京路18号。</td></tr>
+<tr><td>zh-ja-001</td><td>请问洗手间在哪里？</td><td>お手洗いはどこですか？</td><td class="ok">✓ トイレはどこですか?</td><td class="ok">✓ トイレはどこですか？</td></tr>
+<tr><td>zh-ja-002</td><td>这个周末你有空吗？我想请你吃饭。</td><td>今週末は空いていますか？ご飯をご馳走したいです。</td><td class="ok">✓ 今週末はお暇ですか? 食事に誘います。</td><td class="no">✗ この週末有空ですか？食事をお願いします。<small>中文「有空」未译</small></td></tr>
+<tr><td>zh-ja-003</td><td>我要一杯热咖啡，谢谢。</td><td>熱いコーヒーを一杯ください。</td><td class="no">✗ ホットコーヒーを頂き、ありがとうございます。<small>丢「一杯」、把「谢谢」并进主句</small></td><td class="ok">✓ 熱いコーヒーを一杯ください。ごめんなさい。</td></tr>
+<tr><td>zh-ja-004</td><td>请在明天早上八点叫我起床。</td><td>明日の朝八時に起こしてください。</td><td class="ok">✓ 明日の朝8時に起こしてください。</td><td class="no">✗ 明日の朝八時に呼ばせてください。<small>使役「让我叫」把意思弄反</small></td></tr>
+<tr><td>zh-ja-005</td><td>请不要在这里吸烟。</td><td>ここでタバコを吸わないでください。</td><td class="ok">✓ ここでタバコを吸わないでください。</td><td class="no">✗ こちらで喫煙してください。<small><b>否定丢了 —— 意思完全相反</b></small></td></tr>
+<tr><td>zh-ja-006</td><td>这趟电车去东京站吗？</td><td>この電車は東京駅に行きますか？</td><td class="warn">✗ この電車は東京駅まで行くのですか?<small>译文正确，判负是「行き」vs「行く」词形未匹</small></td><td class="ok">✓ この電車は東京駅まで行きますか？</td></tr>
+<tr><td>ja-zh-001</td><td>すみません、駅までの道を教えていただけますか。</td><td>不好意思，能告诉我去车站的路吗？</td><td class="ok">✓ 请问,你能告诉我去车站的路吗?</td><td class="ok">✓ 不好意思，能告诉我从车站到哪里的路吗？</td></tr>
+<tr><td>ja-zh-002</td><td>この薬は一日三回飲んでください。</td><td>这个药请一天吃三次。</td><td class="warn">✗ 每天吃三剂药<small>「三回」→「三剂」，量词错</small></td><td class="warn">✗ 请按照一日三次的剂量服用这个药。<small>译文正确，判负是「三次」未逐字出现</small></td></tr>
+<tr><td>ja-zh-003</td><td>明日の朝八時に起こしてください。</td><td>请明天早上八点叫我起床。</td><td class="warn">✗ 明早八点叫醒我<small>译文正确，判负是「明早」vs「明天」</small></td><td class="ok">✓ 请在明天早上八点叫我。</td></tr>
+<tr><td>ja-zh-004</td><td>この電車は東京駅に止まりますか。</td><td>这趟电车在东京站停吗？</td><td class="warn">✗ 这列火车停在东京车站吗?<small>「電車→火车」「東京駅→东京车站」，判负偏严</small></td><td class="warn">✗ 这列火车会在东京站停吗？<small>同样栽在「電車→火车」</small></td></tr>
+</tbody></table></div>
+<div class="callout"><b>怎么读这张表：</b>OPUS 的 7 个 ✗ 里，<b>3 个是 term 字面匹配过严</b>（zh-ja-006 行く/行き、ja-zh-003 明早/明天、ja-zh-004 电车/火车），译文本身是对的或可接受。
+真正的实义错误是 <b>zh-en-004 币种丢、en-zh-003 起飞≠出发、zh-ja-003 丢「一杯」、ja-zh-002 量词错</b>。
+<br><b>反过来说，Qwen 也有实义级错误</b>：zh-ja-005「请不要在这里吸烟」→「<b>こちらで喫煙してください</b>」<b>把否定整个丢了</b>，zh-ja-004 把「叫我起床」译成使役「让我叫」。<b>两边的失败模式不同，不是单方面碾压。</b></div>
+</section>
+
+<section>
+<h2>五、本轮挖出并修掉的三个坑</h2>
+<p>全部由实测逼出来，不在任何文档里。已逐条写进脚本 docstring 与代码注释。</p>
+
+<h3>坑 1（最贵）：<code>quantize_dynamic</code> 不遍历 <code>If</code> 子图 —— 量化静默失败</h3>
+<p>Optimum 导出的 merged decoder 是「<b>一个 <code>If</code> 包住全部节点、权重挂在顶层 initializer</b>」的结构（<code>use_cache_branch</code> 选首步/增量分支）。<code>onnxruntime.quantization.quantize_dynamic</code> 是基础遍历器，<b>只走 <code>graph.node</code> 顶层，不进子图</b>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>量化前 fp32</th><th>量化后 int8</th><th>图里 INT8 初始器</th></tr></thead>
+<tbody>
+<tr><td>encoder_model</td><td>437.7 MB</td><td class="ok">109.8 MB（3.99×）</td><td class="ok">72 个</td></tr>
+<tr><td>decoder_model_merged <b>（漏传开关）</b></td><td>670.0 MB</td><td class="no">670.1 MB（1.00×）</td><td class="no"><b>0 个</b>（160 个全是 FLOAT）</td></tr>
+<tr><td>decoder_model_merged <b>（<code>EnableSubgraph=True</code>）</b></td><td>670.0 MB</td><td class="ok">168.5 MB（3.98×）</td><td class="ok">122 个</td></tr>
+</tbody></table></div>
+<p><b>修法</b>：<code>quantize_dynamic(..., extra_options={"EnableSubgraph": True})</code>。OR 的 ORT 文档把这条写在 <code>extra_options</code> 的说明里（「Default is False. If enabled, subgraph will be quantized. <b>Dynamic mode currently is supported</b>」）。</p>
+<div class="callout bad"><b>为什么这坑特别危险：脚本「成功返回」、日志「打印了大小」、模型「还能跑出正确译文」——只是文件一个字节都没缩小。</b>我们一开始看到 670 → 670.1 MB 时以为是「量化对 merged decoder 无效」，差点就此放弃 zh→ja。
+<br><b>现在脚本会自己断言压缩比</b>（<code>min_ratio=1.6</code>，不达标直接抛错）并且<b>递归走子图数 INT8 初始器</b>，两条独立判据，不再依赖肉眼看文件大小。</div>
+
+<h3>坑 2：Marian 两族的 id 空间规则<b>相反</b>，选错就整句 <code>⁇</code></h3>
+<div class="table-wrap"><table>
+<thead><tr><th>族</th><th><code>vocab.json</code> 是什么</th><th>条数</th><th>正确做法</th></tr></thead>
+<tbody>
+<tr><td>base（zh-en / en-zh / ja-en）</td><td>source+target 两份 spm 的<b>合并去重表</b></td><td>65001（≈2×32000）</td><td>查 <code>vocab.json</code> 拿 id</td></tr>
+<tr><td>tc-big（zh-ja）</td><td><b>就是 <code>target.spm</code> 本身</b></td><td>32001（100% 与 tgt spm 一致）</td><td><b>用各自 spm 的原生 id</b>（源文 piece 有 3/4 不在 vocab.json 里）</td></tr>
+</tbody></table></div>
+<p><b>自动判据</b>：<code>len(vocab.json) ≥ 1.15 × max(|source.spm|, |target.spm|)</code> → 合并表（vocab 模式）；否则 → 原生 id。<b>对 5 个包全部命中。</b></p>
+<div class="callout warn"><b>症状识别：</b>选错 id 空间的表现是输出<b>整句 <code>&lt;unk&gt;</code>（解码成 <code>⁇</code>）或胡言乱语</b>，而且<b>与量化档位无关</b>——fp32 与 int8 输出逐字相同。遇到这种先查 id 空间，别怪量化。</div>
+
+<h3>坑 3：<code>Xenova/opus-mt-en-jap</code> 的 ONNX 本身是坏的</h3>
+<p>该包两种 id 模式都输出乱码（<code>Hello.</code> → <code>オレナ を 切り倒 せ よ .</code>）。排查路径：查 config（eos=0 / start=pad=46275，正常）→ 手搓推理打印 logits（<code>&lt;pad&gt;</code> 每步<b>都是精确 0.0</b>）→ 换 start token（<code>&lt;s&gt;</code>→<code>.</code>、<code>&lt;pad&gt;</code>→乱码）→ 下 fp32 ONNX 对照（<b>fp32 输出与 int8 逐字相同</b> → 排除量化）→ 用 PyTorch <code>MarianMTModel</code> 取真值（<b>直接喂 source.spm 原生 id 可正常译出</b> → 模型本身没问题）。<b>结论：上游导出问题，非官方 tc 模型。</b></p>
+<p class="muted"><b>影响可控</b>：<code>en→ja</code> 不在本轮需求内（ja→zh 的 pivot 走 ja-en + en-zh，两者都正常）。已判定为上游问题，未修。</p>
+</section>
+
+<section>
+<h2>六、最有价值的意外收获：Xenova 的 base int8 是坏的，白送 7.6~8.4 倍</h2>
+<p>第一轮门禁跑出来一个<b>不合常理</b>的数：<code>zh-ja</code>（209M 参数）只要 <b>61 ms</b>，而更小的 <code>zh-en</code>（77M）却要 <b>261 ms</b>。用 ORT 自带的算子级 profiler 一查就明白了：</p>
+<div class="table-wrap"><table>
+<thead><tr><th>算子（decoder，5 步合计）</th><th>Xenova 的 zh-en</th><th>我们自转的 zh-ja</th></tr></thead>
+<tbody>
+<tr><td><code>/lm_head/MatMul</code>（<b>fp32</b>，未量化）</td><td class="no">68.54 ms</td><td>—（用的是 <code>MatMulInteger</code>）</td></tr>
+<tr><td><code>/lm_head/MatMul_quant</code>（int8）</td><td>—</td><td class="ok">3.72 ms</td></tr>
+<tr><td><code>model.shared.weight_transposed_DequantizeLinear</code><br><small>绑定词嵌入每步都被反量化一次</small></td><td class="no">32.15 ms</td><td class="ok">未出现（&lt;0.6 ms）</td></tr>
+<tr><td><code>optimum::if_kernel</code>（If 子图）</td><td class="no">120.90 ms</td><td>35.94 ms</td></tr>
+</tbody></table></div>
+<p>也就是说：Xenova 的 <code>_int8</code> 导出让 <b>lm_head 走 fp32 MatMul</b>，并且<b>每步都把绑定词嵌入反量化一遍</b>—— 光这两项就吃掉 237 ms 里的 <b>100 ms</b>。我们自己用同一条管线（fp32 导出 → <code>EnableSubgraph</code> 量化）转出来的包，这两处都是 int8 GEMM。</p>
+
+<h3>验证：把三个 base 包自己重转一遍，A/B 对撞</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>包</th><th>Xenova int8</th><th>自转 int8</th><th>加速</th><th>译文</th></tr></thead>
+<tbody>
+<tr><td>zh-en</td><td>233.8 ms</td><td class="ok"><b>29.6 ms</b></td><td><b>7.91×</b></td><td>一致（<code>cab</code>→<code>taxi</code>，更贴参考）</td></tr>
+<tr><td>en-zh</td><td>192.7 ms</td><td class="ok"><b>25.2 ms</b></td><td><b>7.64×</b></td><td class="ok">逐字相同</td></tr>
+<tr><td>ja-en</td><td>254.1 ms</td><td class="ok"><b>30.3 ms</b></td><td><b>8.40×</b></td><td>一致（<code>show</code>→<code>tell</code>，更贴「道を教えて」）</td></tr>
+</tbody></table></div>
+<p>同一批指令统计（3 次预热后取中位数，单线程组测试）。<b>本报告第三节的全部 OPUS 数字，用的都是自转包</b> —— 换成 Xenova 的原包，P50 会从 52 ms 退回到 240 ms 量级，门禁依然能过，但优势从 25× 掉到 5.7×。</p>
+
+<h3>代价：包体 +16%</h3>
+<p>自转包把绑定词嵌入<b>多存了一份 int8 拷贝</b>给 <code>MatMulInteger</code>（Xenova 复用了同一份但每步反量化）。base 包因此从 112.7 MB 涨到 <b>145.9 MB</b>（+33.2 MB = 65001×512 的 int8 张量）。<b>用 +16% 体积换 7.9 倍速度，这个交易毫无疑问。</b></p>
+<div class="callout good"><b>这条的普适意义：不要相信社区预量化包的「int8」字样。</b>同一个模型、同一档位，<b>导出实现的质量差可以到 8 倍</b>。判断方法只有一条 —— <b>跑 profiler 看 <code>MatMul</code> 还是 <code>MatMulInteger</code></b>，看 <code>DequantizeLinear</code> 有没有出现在每个解码步里。</div>
+</section>
+
+<section>
+<h2>七、为什么 OPUS 比 M2M 快、而 M2M 不成立（09-24 结论的修正）</h2>
+<p>两轮实测放在一起，因果就清楚了 —— <b>「专用 NMT 比 LLM 慢」这个结论属于 M2M-100-418M，不属于 NMT 这一类。</b></p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>M2M-100-418M</th><th>OPUS-MT base（77M）</th><th>影响</th></tr></thead>
+<tbody>
+<tr><td>decoder 层数</td><td>12</td><td><b>6</b></td><td>一半</td></tr>
+<tr><td><b>merged decoder past 槽数</b></td><td class="no"><b>48</b>（12 层 × 4）</td><td class="ok"><b>24</b>（6 层 × 4）</td><td>每 token 在 Python↔ORT 之间搬的张量数减半</td></tr>
+<tr><td>参数量</td><td>418M</td><td>77M</td><td>5.4×</td></tr>
+<tr><td>每句关键错误率</td><td class="no">70%</td><td class="ok">35%</td><td>—</td></tr>
+<tr><td>P95</td><td class="no">4995 ms</td><td class="ok">102 ms</td><td><b>49×</b></td></tr>
+</tbody></table></div>
+<p>09-24 那轮总结的四条原因（① 每步搬 48 个 KV 槽；② int8 反量化在 ORT CPU EP 上不便宜；③ encoder-decoder 每 token 算两遍注意力；④ LLM 的 few-shot prefill 是批量的）—— <b>第 ① 条是主因，而现在它被减半了</b>；第 ② 条在自转包里进一步被消掉（lm_head 不再每步反量化）。</p>
+<div class="callout warn"><b>但没有任何一条能证明它在 A8 上依然赢。</b>见第 9 节的边界声明 —— 这个 25× 是<b>桌面读数</b>，不是 iPad mini 4 的读数。</div>
+</section>
+
+<section>
+<h2>八、复现方法</h2>
+<p>全部步骤都在仓库里，可重跑。三个脚本：<code>scripts/fetch-ms.py</code>（ModelScope 分段并行下载）、<code>scripts/export-marian-onnx.py</code>（HF Marian → 端侧 int8 ONNX）、<code>scripts/check-nmt-quality.py</code>（ORT 侧 NMT 门禁）。</p>
+<pre>PY=/path/to/venv/bin/python3      # 需 onnxruntime numpy sentencepiece torch optimum-onnx
+
+# 1) 拉原始权重（ModelScope 8 段并行，实测 3.7 MB/s）
+#    ⚠️ Helsinki 的 base 仓库没有 model.safetensors，只有 pytorch_model.bin
+$PY scripts/fetch-ms.py Helsinki-NLP/opus-mt-zh-en      pytorch_model.bin .tools/opus/zh-en/pytorch_model.bin --segments 8
+$PY scripts/fetch-ms.py Helsinki-NLP/opus-mt-en-zh      pytorch_model.bin .tools/opus/en-zh/pytorch_model.bin --segments 8
+$PY scripts/fetch-ms.py Helsinki-NLP/opus-mt-ja-en      pytorch_model.bin .tools/opus/ja-en/pytorch_model.bin --segments 8
+$PY scripts/fetch-ms.py Helsinki-NLP/opus-mt-tc-big-zh-ja model.safetensors .tools/opus/zh-ja/model.safetensors
+
+# 2) 同目录内就地导出 + 量化（src == out 也可，脚本会跳过同文件复制）
+#    自动做：fp32 导出 → EnableSubgraph 量化 → 断言压缩比 → 递归校验 INT8 → 删 fp32
+$PY scripts/export-marian-onnx.py .tools/opus/zh-en .tools/opus/zh-en --verify
+$PY scripts/export-marian-onnx.py .tools/opus/en-zh .tools/opus/en-zh
+$PY scripts/export-marian-onnx.py .tools/opus/ja-en .tools/opus/ja-en
+$PY scripts/export-marian-onnx.py .tools/opus/zh-ja .tools/opus/zh-ja --verify
+
+# 3) 只验 NMT（不编 llama-server，最快）；--nmt-kind opus 走 OPUS_ROUTES 接线
+$PY scripts/check-nmt-quality.py --nmt-kind opus --dataset evaluation/zh_en_ja_sample.jsonl --nmt-only
+
+# 4) 全套对比（会编 llama-server + 解 Qwen vtmodel，首次约 10 分钟）
+export PATH="$($PY -c 'import cmake,os;print(os.path.join(os.path.dirname(cmake.__file__),"data","bin"))'):$PATH"
+$PY scripts/check-nmt-quality.py --nmt-kind opus --dataset evaluation/zh_en_ja_sample.jsonl --threads 4
+
+# 机读报告：dist/verification/nmt-poc.json</pre>
+<p class="muted">pip 走<b>腾讯镜像</b>（<code>mirrors.cloud.tencent.com</code>，0.9 s）—— 清华镜像在本机走代理要 12.7 s，会卡住。
+<br>⚠️ <code>optimum 2.3.0</code> 把 ONNX 导出拆到了独立包 <b><code>optimum-onnx</code></b>；只装 <code>optimum</code> 会得到一个 <code>__file__=None</code> 的空壳，报 <code>No module named 'optimum.exporters.onnx'</code>。</p>
+</section>
+
+<section>
+<h2>九、建议</h2>
+<ol>
+  <li><b>「为合规换引擎」这个前提取消。</b>现役 Qwen2.5-1.5B 是 Apache-2.0，<b>现在就能上架</b>；OPUS-MT 各包也全部可商用。许可从来不是障碍。</li>
+  <li><b>「专用 NMT 不比 LLM 快」这个结论撤销。</b>那是 M2M-418M 特有的（48 个 KV 槽 + 12 层）。OPUS-MT 在桌面口径上 P50 快 <b>25×</b>、P95 降 <b>93%</b>，门禁 promote = True。</li>
+  <li><b>但先不要动产品架构。缺一个决定性实验：A8 上的绝对延迟。</b>第 9 节边界里写着——这个 25× 是桌面读数，ORT 的 macOS wheel <b>降不到 <code>armv8-a</code> 基线</b>，而 llama.cpp 侧能。也就是说：<b>OPUS 的真实优势有多少来自 dotprod，我们完全不知道</b>，而这恰好决定 iPad mini 4 上成不成立。
+      <br>建议顺序：① 用 <code>llama.cpp + ORT</code> 在真机（或 A8 级设备）各跑一次同样 20 条；② 再决定要不要引入 ORT 这个新原生依赖。</li>
+  <li><b>架构成本要说清：这不是「换个模型」，是「换一套模型体系」。</b>现在是「单模型包 + 五语契约」（<code>ModelPackages</code> / <code>model_pack.py</code> / <code>verify_model_languages.py</code> 等五处同步）；换 OPUS 等于把它重写成「<b>模型矩阵</b>」——<b>语向数 × 每向一个包</b>，运维量线性增长，且 <code>ja→zh</code> 这种缺口要靠路由做两跳拼接。这在工程上比换引擎本身贵得多。</li>
+  <li><b>落地顺序：先做 zh↔en 两向，别一次铺 4 向。</b>zh↔en 是 291.8 MB、质量与 Qwen 打平（zh-en chrF 0.7577 vs 0.7498，OPUS 反而略优），是<b>最快的回本路径</b>；zh→ja 的 tc-big 要 278.3 MB（单包就占总量 39%）；ja→zh 只能 pivot，是质量最弱的一向（chrF 0.2514）。<b>顺序反了会白花一半工时。</b></li>
+  <li><b>若「更快」是硬指标，先试这条（比换引擎便宜得多）：</b>Qwen 的 1322 ms 里绝大部分是 <b>3 组 few-shot 的 300 token prefill</b>，而 OPUS 根本没有 prompt。连续翻译时这段前缀逐字相同，可复用它的 KV、省掉每句重复 prefill —— 脚手架已就位（<code>QwenServerEngine.cache_prompt</code>），但<b>至今未跑出数据</b>。粗算 Qwen 可降到 400~500 ms 量级，那时 OPUS 的优势会从 25× 缩到 ~10×，<b>但依然领先</b>。</li>
+  <li><b>语料必须先扩。</b><code>evaluation/README.md</code> 明确写着内置语料「不能用于模型选型」。20 条的判定粒度是 5%，「35% vs 30%」= 7 错 vs 6 错，<b>一个用例之差</b>。要拍板换不换，得按 README 补到每向 200 条。</li>
+</ol>
+<div class="callout good"><b>本轮实质产出：</b>把「换专用 NMT」从 <b>「已验证，418M 档不成立」</b>推进到 <b>「OPUS 档门禁通过，但优势是否随指令集消失仍未测」</b>；顺手挖出并修掉了 <b>一个会静默失败的量化陷阱</b>与<b>两个 id 空间规则相反的分词陷阱</b>；并且发现<b>社区预量化包比自转包慢 7.6~8.4 倍</b> —— 这条对任何用 ORT 跑 encoder-decoder 的项目都适用。</div>
+</section>
+
+<footer>
+<b>评估边界（务必连同结论一起读）：</b>
+① 语料仅 <b>20 条</b>，<code>evaluation/README.md</code> 已声明不足以选型，本报告只用于判定方向；判定粒度 5%。
+② <b>桌面读数，不是真机读数。</b>ORT 的 macOS wheel 由 Apple Silicon 的 dotprod/i8mm 路径编译，<b>无法降级到 <code>armv8-a</code> 基线</b>；Qwen 侧用 <code>armv8.2-a+dotprod+fp16</code> 构建。所以两侧的<b>指令集口径不一致</b>，绝对 ms 不能外推到 iPad mini 4，只有同机相对倍率可用。
+③ <b>两侧都未在 iOS/Android 真机上测过</b>；<b>ORT 尚未作为原生依赖接入本项目</b>，本报告的 OPUS 全部跑在 macOS Python 进程里（含 Python↔ORT 桥接开销）。
+④ Qwen 侧走 llama-server HTTP（含 ~数 ms 网络开销），且 <b>未开 prompt KV 复用</b>（<code>cache_prompt=False</code>），所以它的 1322 ms 里包含每句重复 prefill 的 300 token —— <b>这是对 OPUS 有利的口径，第 9 节第 6 条已点明</b>。
+⑤ <code>critical_terms</code> 是字面匹配代理指标：20 条里至少 3 条 OPUS 的 ✗ 属词形/同义未命中而非语义错误（已在第 4 节逐条标注）。<b>两侧都有实义级错误</b>。
+⑥ OPUS-MT 的质量数字是<b>本机实测</b>（20 条）；第七节引用的第三方 FLORES-101 数字（BLEU 22.99 / chrF2 53.98 / 3.73 s）<b>不是本机跑的</b>，仅作旁证。
+⑦ 体积为 <code>encoder_model_int8.onnx</code> + <code>decoder_model_merged_int8.onnx</code> 的<b>本机实测字节数</b>；<b>不含</b> ORT runtime 本体（<code>libonnxruntime</code> iOS 静态库约 +10~20 MB）与词表/配置。
+⑧ <b>时间线：</b>第一～五节与第七节的 M2M 数据实测于 2026-09-24；第二、三、四、六节与第八节于 2026-09-28 重测并改写。
+</footer>
+
+</main></body></html>

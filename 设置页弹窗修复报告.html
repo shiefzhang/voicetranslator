@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceTranslator · 设置页弹窗修复报告（v0.2.5）</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1a1d21; --ink2:#5b636e; --ink3:#8b939e;
+    --line:#e4e7ec; --line2:#eef0f3;
+    --ok:#1f8a4c; --okbg:#e9f7ee; --warn:#a86400; --warnbg:#fdf3e0;
+    --bad:#b03030; --badbg:#fdeceb; --info:#20618a; --infobg:#e8f2f8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16181c; --panel:#1e2126; --ink:#e8eaed; --ink2:#a8b0ba; --ink3:#7c848f;
+      --line:#2f343b; --line2:#262a30;
+      --ok:#5cc98b; --okbg:#16281d; --warn:#e0a94a; --warnbg:#2b2314;
+      --bad:#e57373; --badbg:#2d1a19; --info:#6db4dd; --infobg:#152429;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:44px 24px 72px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  h1{margin:0 0 6px;font-size:27px;letter-spacing:-.4px}
+  .sub{color:var(--ink2);font-size:13.5px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  h2{font-size:16px;margin:38px 0 14px;padding-left:11px;border-left:3px solid var(--ink);letter-spacing:-.1px}
+  h2.bad{border-left-color:var(--bad);color:var(--bad)}
+  h2.ok{border-left-color:var(--ok);color:var(--ok)}
+
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px}
+  .vcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .vcard .k{font-size:11.5px;color:var(--ink3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px}
+  .vcard .v{font-size:19px;font-weight:650;letter-spacing:-.3px}
+  .vcard .n{font-size:12px;color:var(--ink2);margin-top:3px}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px;margin:0}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line2);vertical-align:top}
+  th{background:var(--line2);font-weight:600;font-size:12px;color:var(--ink2);
+     letter-spacing:.3px;text-transform:uppercase}
+  tr:last-child td{border-bottom:none}
+  td.m{font-family:var(--mono);font-size:12.2px;word-break:break-all}
+  .dim{color:var(--ink3)}
+
+  .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px;
+    font-weight:600;white-space:nowrap;line-height:1.6}
+  .t-ok{background:var(--okbg);color:var(--ok)}
+  .t-warn{background:var(--warnbg);color:var(--warn)}
+  .t-bad{background:var(--badbg);color:var(--bad)}
+  .t-info{background:var(--infobg);color:var(--info)}
+
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:12.4px;
+    line-height:1.62;margin:0;color:var(--ink)}
+  pre .c{color:var(--ink3)}
+  pre .g{color:var(--ok)}
+  pre .r{color:var(--bad)}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--line2);padding:1px 5px;border-radius:4px}
+
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--info);
+    border-radius:0 10px 10px 0;padding:13px 16px;font-size:13.3px;color:var(--ink2)}
+  .note b{color:var(--ink)}
+  .note.bad{border-left-color:var(--bad)}
+  .note.warn{border-left-color:var(--warn)}
+  .sp{margin-top:14px}
+
+  ol,ul{margin:8px 0 0;padding-left:22px}
+  li{margin:6px 0;font-size:13.5px;color:var(--ink2)}
+  li b{color:var(--ink)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 0}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13px}
+  .node.hit{border-color:var(--bad);background:var(--badbg);color:var(--bad);font-weight:600}
+  .node.ok{border-color:var(--ok);background:var(--okbg);color:var(--ok);font-weight:600}
+  .arw{color:var(--ink3);font-size:14px}
+
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12.3px;color:var(--ink3);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>设置页三个选项点击无反应 · 修复报告</h1>
+  <div class="sub">
+    VoiceTranslator iOS <b>v0.2.5</b>（build 8）&nbsp;·&nbsp;
+    纯呈现层缺陷&nbsp;·&nbsp; 已构建并安装到 iPad mini 4
+  </div>
+</header>
+
+<div class="verdict">
+  <div class="vcard">
+    <div class="k">现象</div>
+    <div class="v">3 / 3 失效</div>
+    <div class="n">主语言 · 翻译语言 · 分享内容</div>
+  </div>
+  <div class="vcard">
+    <div class="k">根因</div>
+    <div class="v">模态堆叠</div>
+    <div class="n">同一视图 4 个 presentation 修饰符</div>
+  </div>
+  <div class="vcard">
+    <div class="k">改动</div>
+    <div class="v">2 个源文件</div>
+    <div class="n">SettingsView · AppModel</div>
+  </div>
+  <div class="vcard">
+    <div class="k">验证</div>
+    <div class="v">构建 + 安装成功</div>
+    <div class="n">arm64 / 0.2.5 (8) / 设备已就绪</div>
+  </div>
+</div>
+
+<h2 class="bad">一、先定位：为什么确信不是「按钮坏了」</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:10px 0 0">
+用一个很省事的判别法：<b>在同一页面里找已知能用的同类控件，比对它们用的 API。</b>
+设置页里「查看版本更新记录」走 <code>sheet</code>、翻译页的菜单走 <code>Menu</code>，
+都没有被报故障；三个坏掉的项则共用 <code>confirmationDialog</code>。
+API 分布和故障分布完全重合，嫌疑就锁定了。
+</p>
+
+<div class="flow sp">
+  <div class="node hit">主语言 · confirmationDialog</div>
+  <div class="node hit">翻译语言 · confirmationDialog</div>
+  <div class="node hit">分享内容 · confirmationDialog</div>
+  <div class="node">版本记录 · sheet</div>
+  <div class="node">翻译页菜单 · Menu</div>
+</div>
+
+<p style="font-size:13.3px;color:var(--ink2);margin:10px 0 0">
+再往下看 <code>SettingsView</code> 的修饰符挂载点，问题就完全摊开了 ——
+<b>四项全都挂在哪同一个根视图上</b>。
+</p>
+
+<pre class="sp"><span class="c">// 修改前：SettingsView 最外层 VStack 上叠了 4 个 presentation 修饰符</span>
+VStack(alignment: .leading, spacing: 0) { <span class="c">/* 页面内容 */</span> }
+    .confirmationDialog(<span class="r">"选择语言"</span>,  isPresented: ...)   <span class="c">// 47 行 —— 永不触发</span>
+    .confirmationDialog(<span class="r">"分享内容"</span>,  isPresented: ...)   <span class="c">// 67 行 —— 永不触发</span>
+    .sheet(isPresented: ...) { changelogSheet }
+    .fileImporter(isPresented: ..., ...)</pre>
+
+<h2 class="bad">二、两条独立的失效机制，且都不会报错</h2>
+
+<table class="sp">
+  <tr>
+    <th style="width:190px">机制</th>
+    <th>具体行为</th>
+    <th style="width:170px">对应用户感受</th>
+  </tr>
+  <tr>
+    <td><b>同一视图上的多个<br>presentation 修饰符<br>只有最后一个生效</b></td>
+    <td>
+      <code>alert</code> / <code>confirmationDialog</code> / <code>sheet</code> /
+      <code>fullScreenCover</code> / <code>fileImporter</code> / <code>popover</code>
+      争用同一个槽位。排在前面的不是「优先级低」，而是<b>完全不触发</b>。<br>
+      语言那一项被后面的分享内容覆盖：<code>editingLanguage</code> 已被赋值，
+      但没有任何弹窗出现。
+    </td>
+    <td>点「主语言」<br>→ 毫无反应</td>
+  </tr>
+  <tr>
+    <td><b>iPad 上<br>confirmationDialog<br>需要 popover 锚点</b></td>
+    <td>
+      <code>confirmationDialog</code> 本质是 <code>.actionSheet</code> 样式的
+      <code>UIAlertController</code>，在 iPad 上必须作为 popover 呈现并给出
+      <code>sourceView</code> / <code>sourceRect</code>。修饰符挂在<b>根视图</b>上
+      （离触发它的按钮很远）时 SwiftUI 拿不到可用锚点。
+    </td>
+    <td>点「分享内容」<br>→ 同样毫无反应</td>
+  </tr>
+</table>
+
+<div class="note bad sp">
+  <b>为什么这个 bug 特别难查：</b>两条机制都<b>静默失败</b> —— 不崩溃、不打印日志、
+  不留痕迹。代码能编译、能运行、按钮状态也确实变了，只是界面上什么都不发生。
+  所以「构建通过」在这里完全不构成任何证据。
+</div>
+
+<h2 class="ok">三、修法：每个视图层级只留一个 presentation 修饰符</h2>
+
+<table class="sp">
+  <tr>
+    <th style="width:230px">入口</th>
+    <th style="width:270px">承载方式</th>
+    <th>挂在哪</th>
+  </tr>
+  <tr>
+    <td>主语言 / 翻译语言 / 分享内容</td>
+    <td>
+      一个 <code>.sheet(item:)</code><br>
+      <span class="dim">+ 统一 <code>PickerTarget</code> 枚举</span>
+    </td>
+    <td><code>body</code> 根的 <code>VStack</code> —— 全页唯一槽位</td>
+  </tr>
+  <tr>
+    <td>版本更新记录</td>
+    <td><code>.sheet(isPresented:)</code></td>
+    <td><code>aboutSection</code> 自己身上 —— 独立槽位</td>
+  </tr>
+  <tr>
+    <td>转写 / 翻译模型包</td>
+    <td>
+      <code>.fileImporter</code><br>
+      <span class="dim">binding 里用 <code>kind</code> 过滤</span>
+    </td>
+    <td>各自的 <code>modelRow</code> —— 独立槽位</td>
+  </tr>
+</table>
+
+<p style="font-size:13.3px;color:var(--ink2);margin:14px 0 0">
+两行共用一份 <code>@State</code>，所以要过滤，否则两个 <code>fileImporter</code> 会同时激活：
+</p>
+
+<pre class="sp">private func importerBinding(for kind: ModelPackages.Kind) -&gt; Binding&lt;Bool&gt; {
+    Binding(
+        get: { showImporter &amp;&amp; importingKind == kind },
+        set: { if !$0 { showImporter = false; importingKind = nil } }
+    )
+}</pre>
+
+<p style="font-size:13.3px;color:var(--ink2);margin:14px 0 0">
+顺带把「选一项」统一成 <code>sheet(item:)</code> + 一个枚举，而不是 N 个独立弹窗。
+好处不只是绕开冲突：<b>「当前在显示哪个弹窗」被收敛成一个状态</b>，
+上面那条规则才有可能被真正遵守，而不是靠自觉。
+</p>
+
+<h2>四、顺手收紧的三处</h2>
+
+<table class="sp">
+  <tr><th style="width:200px">项目</th><th>说明</th></tr>
+  <tr>
+    <td><b>先关 sheet<br>再落库</b></td>
+    <td>
+      <code>commitLanguageChange</code> 在页面上有文本时会弹确认框。
+      sheet 的关闭动画还在跑的时候再 present alert 会被系统<b>直接丢掉</b>，
+      所以中间隔 0.4 s。
+    </td>
+  </tr>
+  <tr>
+    <td><b>shareMode<br>读写都钳制</b></td>
+    <td>
+      它来自 <code>@AppStorage</code>，是磁盘状态 —— 旧版本或人工改动留下的越界值
+      会让 <code>shareModeLabels[...]</code> 下标越界<b>直接崩溃</b>。
+      现在读到越界值回落到第 3 项，写入时钳到 0…3。新增
+      <code>AppModel.shareModeLabel(_:)</code> 供设置页取文案。
+    </td>
+  </tr>
+  <tr>
+    <td><b>说明文案<br>补「粤」</b></td>
+    <td>
+      设置页底部还写着「支持中日韩英」—— 上一轮把语种扩到五语时改了 Android 侧，
+      iOS 这处漏了。现同步为<b>「支持中日韩英粤」</b>，两端一致。
+    </td>
+  </tr>
+</table>
+
+<h2>五、状态层的净减少</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:10px 0 0">
+Android 那套「行点击 → 写入待选目标 → 弹窗绑定该目标非空 → 关闭时清空」的写法，
+在 iOS 上是<b>三处状态必须互相一致</b>，而只要弹窗因为上面任一原因没弹出来，
+这个标记就会一直被留在那儿。
+改为让选择器自己持有该状态：
+</p>
+
+<table class="sp">
+  <tr><th style="width:330px">改动</th><th>结果</th></tr>
+  <tr>
+    <td class="m">删除 @Published var editingLanguage</td>
+    <td>少一个需要在 View 与 Model 之间同步的状态</td>
+  </tr>
+  <tr>
+    <td class="m">requestLanguageChange(_:) → canChangeLanguage() -&gt; Bool</td>
+    <td>变成纯判断，不再往 Model 里写「待选目标」</td>
+  </tr>
+  <tr>
+    <td class="m">commitLanguageChange(to:) → commitLanguageChange(to:target:)</td>
+    <td>目标显式传入，不依赖隐式状态</td>
+  </tr>
+  <tr>
+    <td class="m">performChange(target:code:key:) 去掉 key</td>
+    <td><b>这个参数本来就没人用</b>，是历史死参数</td>
+  </tr>
+</table>
+
+<h2 class="ok">六、验证证据</h2>
+
+<pre><span class="c"># 双平台构建</span>
+bash scripts/build-ios.sh            →  <span class="g">** BUILD SUCCEEDED **</span>
+bash scripts/build-ios.sh --device   →  <span class="g">** BUILD SUCCEEDED **</span>
+                                       [100%] Installed package …/Debug-iphoneos/VoiceTranslator.app
+                                       <span class="g">✔ com.shiefzhang.voicetranslator 已安装（Debug 构建）</span>
+
+<span class="c"># 成品核验</span>
+版本号:   <span class="g">0.2.5 (8)</span>          <span class="c">← 上一版 0.2.4 (7)</span>
+架构:     arm64
+最低系统: 15.0
+二进制:   42.6 MB
+
+<span class="c"># 原生库符号仍然在位（这次改动没有动依赖链）</span>
+_llama_ 241   _ggml_ 1408   _SherpaOnnx_ 173   _Ort 10
+
+<span class="c"># 设备</span>
+[iPad-mini4 (J96AP, arm64, iOS 15.8.8) connected through USB]
+/Documents/qwen25-1.5b-q3-zh-ja-ko-en-yue.vtmodel      <span class="c">← 覆盖安装保留了模型包</span>
+/Documents/sensevoice-zh-ja-ko-en.vtmodel</pre>
+
+<h2 class="warn" style="border-left-color:var(--warn);color:var(--warn)">七、仍未验证的部分</h2>
+
+<div class="note warn">
+  <b>这次修的是「点了有没有反应」，不是「翻译能不能用」。</b>
+  两者是不同层级的问题，不要混为一谈。
+</div>
+
+<ul>
+  <li>
+    <b>真机端到端仍未实测</b>：录音 → VAD → SenseVoice ASR → llama 翻译。
+    模型包已在设备上，但需要在 iPad 上人工导入并跑一遍。
+    A8 芯片跑 1.5B Q3 翻译模型的延迟、发热、内存占用都还没有实测数据。
+  </li>
+  <li>
+    <b>粤语译文质量未验证</b>：1.5B Q3 能否稳定输出地道粤语，属于模型能力问题，
+    与本次呈现层修复无关。
+  </li>
+  <li>
+    <b>模拟器验证不到这类问题</b>：iPad 上的 popover 锚点问题在模拟器上
+    会以居中模态呈现，根本复现不出来。这类修复必须<b>装到真机上看</b>。
+  </li>
+</ul>
+
+<footer>
+  <span>VoiceTranslator iOS · 设置页弹窗修复报告</span>
+  <span>v0.2.5 (8) · iOS 15.0+ · arm64 · 完全离线</span>
+</footer>
+
+</div>
+</body>
+</html>

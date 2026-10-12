@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · OPUS 日译中（ja→zh）启用报告</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">APPLIED · 2026-10-09 · OPUS 专用引擎</div>
+  <h1>日译中（ja→zh）接入 OPUS 专用引擎</h1>
+  <p class="lead">把 <b>ja→zh</b> 加进「智能选择」的专用引擎语向白名单与模型包接线。上游没有直接的日→中模型，只能 <b>ja-en → en-zh 两跳 pivot</b>。</p>
+  <p>取舍明确：<b>关键错误率 75% vs Qwen 50%</b>（门禁四向里唯一明显落后），但 <b>P50 延迟 69 ms vs 1405 ms（快约 20×）</b>。连续翻译场景里，这个速度差距比几个百分点的关键错误率更要命 —— 所以本轮<b>用速度换质量</b>。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>20/20 逐字一致</b>端侧 C++ vs Python 参考<br><span class="muted">含 4 条 ja-zh 用例（此前会被跳过）</span></div>
+  <div class="metric"><b>快约 20×</b>69 ms vs 1405 ms<br><span class="muted">P50，门禁实测</span></div>
+  <div class="metric"><b>683 MiB 包体</b>原 548 MiB<br><span class="muted">+139 MiB（routes/ja-en）</span></div>
+  <div class="metric"><b>184 条测试全绿</b>与回归基线一致<br><span class="muted">Java 语法 11/11</span></div>
+</div>
+<div class="callout warn">
+<b>这一版是「功能补齐」，不是「质量升级」。</b>ja→zh 的质量确实比 Qwen 差（见第三节），本轮把它交给 OPUS 的理由只有一条：<b>延迟</b>。
+若要退回，删掉 <code>prefersOpus</code> 里的 <code>("ja", "zh")</code> 即可 —— 包内的 <code>ja-zh</code> 接线会被第 ① 层判定拦住，不会生效（第六节）。
+</div>
+</section>
+
+<section>
+<h2>一、上游核查：为什么没有「直译」这条路</h2>
+<p>逐个核过 Helsinki-NLP 在 HuggingFace 上的完整清单（<code>hf-mirror</code> API，按模型 id 精确检索）：<b>官方 <code>opus-mt-ja-*</code> 系列里没有任何以 <code>zh</code> 为目标的模型</b>。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>检索</th><th>结果</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>opus-mt-ja-ar / -bg / -da / -de / -en / -es / -fi / -fr / …</code></td><td class="warn">有 21 个</td><td>日→英、日→德、日→法… <b>唯独没有 ja→zh</b></td></tr>
+<tr><td><code>opus-mt-ja-zh</code> / <code>opus-mt-tc-big-ja-zh</code></td><td class="no">不存在</td><td>HF 上无此模型</td></tr>
+<tr><td><code>opus-mt-tc-big-zh-ja</code></td><td class="ok">存在</td><td><b>只有中→日单向</b>，且已是现役 <code>zh-ja</code> 用的包</td></tr>
+</tbody></table></div>
+<div class="callout">
+<b>结论：</b>ja→zh 只能走 <b>ja-en → en-zh</b> 两跳（日→英→中），两跳解码、误差累积。
+这也是它成为四向里最弱一向的根因，不是包的问题。
+</div>
+<p class="muted">另：社区有反向模型（<code>shun89/opus-mt-ja-zh</code> 等，Apache-2.0），但无现成 ONNX、质量未验、非官方出品，上架需自担风险 —— 本轮未采用，与 2026-09-28 门禁的处置一致。</p>
+</section>
+
+<section>
+<h2>二、门禁数据：这个取舍的数字口径</h2>
+<p>语料 <code>evaluation/zh_en_ja_sample.jsonl</code>（20 条：zh-en 5 / en-zh 5 / zh-ja 6 / ja-zh 4），greedy、4 线程、模型常驻且预热后计时。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>语向</th><th>OPUS 关键错误率</th><th>Qwen 关键错误率</th><th>OPUS P50</th><th>Qwen P50</th><th>倍数</th><th>结构</th></tr></thead>
+<tbody>
+<tr><td>zh→en</td><td class="ok">20%</td><td class="ok">20%</td><td class="ok">33 ms</td><td class="no">1149 ms</td><td>35×</td><td>单跳</td></tr>
+<tr><td>en→zh</td><td class="ok">20%</td><td class="ok">0%</td><td class="ok">29 ms</td><td class="no">1320 ms</td><td>46×</td><td>单跳</td></tr>
+<tr><td>zh→ja</td><td class="ok">33%</td><td class="warn">50%</td><td class="ok">72 ms</td><td class="no">1420 ms</td><td>20×</td><td>单跳（模型 209M）</td></tr>
+<tr><td><b>ja→zh</b></td><td class="no"><b>75%</b></td><td class="warn"><b>50%</b></td><td class="ok"><b>69 ms</b></td><td class="no"><b>1405 ms</b></td><td><b>20×</b></td><td><b>pivot 两跳</b>（≈29+33 ms）</td></tr>
+</tbody></table></div>
+<div class="callout warn">
+<b>必须说清楚的两点：</b>
+<ol>
+<li>ja-zh 的 <b>4 条用例里有 3 条判负</b>，其中部分是 <code>critical_terms</code> 字面匹配过严（如「明早」vs「明天」、「電車→火车」）。
+即便如此，<b>75% vs 50% 的方向是确定的</b> —— 它在四向里唯一明显落后。</li>
+<li>20 条语料的判定粒度是 5%，<b>不足以支撑「质量接近」的结论</b>。本轮启用不是因为质量够了，而是因为延迟差 20 倍。</li>
+</ol>
+</div>
+</section>
+
+<section>
+<h2>三、改动清单</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>文件</th><th>改动</th></tr></thead>
+<tbody>
+<tr><td><code>scripts/export-opus-package.py</code></td><td><code>DEFAULT_ROUTES</code> 加入 <code>ja-zh</code>（原为「刻意不含」，注释整段重写为两年跳依据）</td></tr>
+<tr><td><code>scripts/pack-opus-models.py</code></td><td>文档重写；新增 <code>--version</code>（默认 <code>1.1.0</code>），manifest 的 <code>version</code> 由写死改为可配</td></tr>
+<tr><td><code>ios/…/Core/TranslationBackend.swift</code></td><td><code>prefersOpus</code> 加 <code>("ja", "zh")</code>；<code>hint</code> 文案改「中日互译」；头部依据段重写</td></tr>
+<tr><td><code>app/…/TranslationBackend.java</code></td><td>同上（<code>prefersOpus</code> 加 <code>ja→zh</code> 分支、<code>hint()</code>、类注释）</td></tr>
+<tr><td><code>ios/…/Views/SettingsView.swift</code></td><td>设置页「翻译引擎」说明文案</td></tr>
+<tr><td><code>ios/…/Models/ModelPackages.swift</code><br><code>app/…/ModelPackages.java</code></td><td>注释里「中英互译与中译日」→「中日互译」（kind 说明、第③层替身示例）</td></tr>
+<tr><td><code>scripts/verify-opus-package.py</code></td><td>文档里「默认包刻意不含 ja-zh」的反向陈述改正</td></tr>
+<tr><td><code>README.md</code> / <code>ios/README.md</code></td><td>共 <b>16 处</b>口径：体积、覆盖语向、白名单三个→四个、<code>ja→zh</code> 段落改写</td></tr>
+<tr><td><code>model-manifests/opus-mt-zh-en-ja-v1.json</code></td><td>打包脚本自动生成：<code>version 1.1.0</code>、<code>routes</code> 四条、<code>idMode</code> 增 <code>ja-en</code></td></tr>
+<tr><td><code>models/opus-mt-zh-en-ja-v1.vtmodel</code></td><td>重打包：574,813,619 → <b>715,721,791</b> 字节（ZIP64）</td></tr>
+<tr><td><code>ios/BundledModels/opus/</code><br><code>app/src/main/assets/bundled-models/opus.vtmodel</code></td><td><code>model-tiers.py --emit</code> 重新投放（逐文件复校 SHA-256）</td></tr>
+</tbody></table></div>
+<p class="muted">包 id <b>保持 <code>opus-mt-zh-en-ja-v1</code> 不变</b>：id 里的「zh-en-ja」描述的是<b>语向集合</b>（加 ja-zh 后仍准确），内容版本改走 manifest 的 <code>version</code> 字段。两端内置按 <b>kind</b> 落盘（<code>opus/</code>、<code>opus.vtmodel</code>），不依赖 id。</p>
+</section>
+
+<section>
+<h2>四、验证证据</h2>
+
+<h3>1. 端侧 C++ 与 Python 参考实现逐字对撞（含 4 条 ja-zh）</h3>
+<pre>$ python3 scripts/verify-opus-package.py --package .tools/opus-package
+端侧包   ：.tools/opus-package
+包内接线 ：{"zh-en": ["zh-en"], "en-zh": ["en-zh"], "zh-ja": ["zh-ja"], "ja-zh": ["ja-en", "en-zh"]}
+数据集   ：zh_en_ja_sample.jsonl 共 20 条，包覆盖 20 条
+端侧 C++ 核心跑同一批…
+  已装载：接线 4 个语向，单包按需装载
+────────────────────────────────────────────────
+zh-en ×5 ✓   en-zh ×5 ✓   zh-ja ×6 ✓   ja-zh ×4 ✓
+────────────────────────────────────────────────
+一致 20/20（20 逐字相同）
+端侧与 Python 参考实现逐字一致 —— 这个包可以打进 App 了。</pre>
+<p class="muted">此前默认包不含 ja-zh，这 4 条会被「包里没有这条接线」跳过、不计入通过率；现在是<b>真的跑了</b>。</p>
+
+<h3>2. 回归测试与门禁</h3>
+<pre>$ pytest scripts/tests/ -q
+184 passed in 10.56s            # 与仓库回归基线 9 模块 / 184 条完全一致
+
+$ python3 scripts/model-tiers.py --verify
+内置产物检查通过：
+  asr          sensevoice-four-language-int8-v1
+  opus         opus-mt-zh-en-ja-v1
+  translation  不内置（由用户在设置页导入）
+
+$ python3 scripts/check-java-syntax.py
+✓ 11 个 Java 文件的语法都通过</pre>
+
+<h3>3. 产物一致性（包 ↔ Android assets 逐字节相同）</h3>
+<pre>$ shasum -a 256 models/opus-mt-zh-en-ja-v1.vtmodel \
+                 app/src/main/assets/bundled-models/opus.vtmodel
+585d871933a612b22e986c9752556c3ccf73630e2b809eaf56de6c2680e9fe66  models/…vtmodel
+585d871933a612b22e986c9752556c3ccf73630e2b809eaf56de6c2680e9fe66  app/…/opus.vtmodel
+
+$ unzip -p models/opus-mt-zh-en-ja-v1.vtmodel routes.txt
+zh-en	zh-en
+en-zh	en-zh
+zh-ja	zh-ja
+ja-zh	ja-en,en-zh        # ← 新增的接线在包内可见
+
+$ du -sh ios/BundledModels/opus ios/BundledModels
+683M	ios/BundledModels/opus
+912M	ios/BundledModels</pre>
+
+<h3>4. 三层判定（两端一致，由 test_translation_shortcut.py 的 15 条守着）</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>层</th><th>判定</th><th>ja→zh 现状</th></tr></thead>
+<tbody>
+<tr><td>① 用户选择</td><td><code>backend == .hybrid</code></td><td class="ok">✅ 默认档</td></tr>
+<tr><td>② 语向白名单</td><td><code>prefersOpus(...)</code></td><td class="ok">✅ 本轮加入 <code>("ja","zh")</code></td></tr>
+<tr><td>③ 包内接线</td><td>包内 <code>routes.txt</code> 有 <code>ja-zh</code></td><td class="ok">✅ 新包已有</td></tr>
+</tbody></table></div>
+<p>三层全真 ⇒ <code>translationRequired = false</code>：<b>日译中不再要求先导入通用翻译模型包</b>，装好即可直接开始翻译。</p>
+</section>
+
+<section>
+<h2>五、注意事项与遗留</h2>
+<ul>
+<li><b>包体积 +139 MiB。</b>两端内置合计由 777 MiB 增至 <b>912 MiB</b>（iOS 侧已实测为 <code>du -sh ios/BundledModels</code> = 912M）；Android APK 会相应变大。</li>
+<li><b>已导入过旧版 opus 包的设备要重新导入。</b>取包入口是 <code>selected = installed ?? bundled</code> —— 用户手工导入的旧包（<code>routes.txt</code> 里没有 <code>ja-zh</code>）会<b>遮蔽</b>新的内置包，表现为「日译中还是走通用模型」。在设置页重新导入或先「移除」即可。</li>
+<li><b>版本号与更新日志未动。</b>iOS <code>Info.plist</code> / Android <code>build.gradle</code> 的版本号、两端「更新日志」条目均<b>未改</b>（这属于发布动作）。<code>gen-ios-project.py</code> 也未重跑 —— <code>BundledModels/</code> 的目录结构没变（仍是 <code>asr/</code> + <code>opus/</code> 两个 folder reference），工程引用无需更新。</li>
+<li><b>APK 未重打。</b><code>dist/android/</code> 下仍是旧版（不含 ja-zh 接线）。</li>
+<li><b>真机未验。</b>上述全部是构建期验证 + 端侧 C++ 对撞；iPad mini 4 上的日译中端到端仍待实测。</li>
+<li><b>质量仍是四向里最弱。</b>「日译中走 OPUS」的收益是速度，不是准确度；对质量敏感的场景可切「统一模型」档。</li>
+</ul>
+</section>
+
+<section>
+<h2>六、如何回退</h2>
+<ol>
+<li><b>只回退策略</b>（包仍带 ja-zh 接线，但不使用）：删掉 <code>TranslationBackend.swift</code> 的 <code>("ja", "zh")</code> 与 <code>TranslationBackend.java</code> 的 <code>ja→zh</code> 分支。第 ① 层判定直接拦住。</li>
+<li><b>连包一起回退</b>到三条接线：
+<pre>python3 scripts/export-opus-package.py --routes zh-en,en-zh,zh-ja
+python3 scripts/pack-opus-models.py
+python3 scripts/model-tiers.py --emit</pre>
+</li>
+</ol>
+</section>
+
+<footer>
+VoiceTranslator · OPUS 日译中启用报告 · 生成于 2026-10-09。门禁原始数据见 <code>NMT换引擎门禁报告.html</code>；打包与接线契约见 <code>README.md</code>、<code>ios/README.md</code> §5.12。
+</footer>
+
+</main></body></html>

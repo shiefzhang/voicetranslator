@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 中译日「每句都慢」排障（v0.2.10）</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.half{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">DIAGNOSED · 2026-09-30 · v0.2.10 · 症状：中译日「每一句都慢」</div>
+  <h1>专用引擎在 iOS 上<br>从来就没活过</h1>
+  <p class="lead">问：「为啥这次的翻译那么慢，上次中日翻译还是很快的，<b>是不是模型选错了</b>？」</p>
+  <p>答：<b>不是档位选错</b>，也不是包选错。是 <code>native/nmt/vt_ort.h</code> 的一个<b>编译期宏</b>
+  <code>VT_ORT_STATIC</code> 从来没被定义过 —— 于是 OPUS-MT 专用引擎在 iOS 上<b>一次都没装载成功</b>，
+  每一句都静默回落到通用模型 Qwen（P50 <b>1322 ms</b> 对 OPUS 的 <b>52 ms</b>）。
+  这条链上每一步都「成功」：编译 ✅ 链接 ✅ 安装 ✅ 启动 ✅，界面上没有任何提示。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>0 处</b>修复前 <code>VTOpusNmt.o</code> 对 ORT 入口的引用<br><span class="muted">修复后 1 处 <code>U _OrtGetApiBase</code></span></div>
+  <div class="metric"><b>56 处</b>最终 binary 里的 Ort 符号<br><span class="muted">⚠️ 宏没定义时<b>也是 56</b></span></div>
+  <div class="metric"><b>2 道闸</b>接进 <code>build-ios.sh</code><br><span class="muted">构建前查配置 + 构建后查产物</span></div>
+  <div class="metric"><b>10 / 10</b>新判据的负向验证<br><span class="muted">逐字节还原后 109 项全绿</span></div>
+</div>
+
+<div class="callout bad">
+<b>一句话说清根因</b>：<code>ios/Config/Base.xcconfig:53</code> 用 <code>$(VT_DEPS_DEFINES)</code>
+把编译期宏透传给编译器，而<b>提供它的 <code>scripts/setup-ios-deps.sh</code> 从来没写过这一行</b>。
+<code>Base.xcconfig:36-40</code> 里连注释都写好了「依赖构建完成后会填 <code>VT_ORT_STATIC</code>」——
+<b>设计在，实现没跟上</b>。属于「半成品机制」，不是回归。
+</div>
+</section>
+
+<section>
+<h2>二、症状指纹：先把「慢」分成三种</h2>
+<p>「慢」这个词太粗，必须看<b>形态</b>。这也是排查时最先要问清的一件事：</p>
+<div class="table-wrap">
+<table>
+<tr><th>形态</th><th>指向</th><th>本次</th></tr>
+<tr><td>第一句特别慢，之后明显变快</td><td>冷 prefill（3 组 few-shot 重喂 200~300 token）/ 冷读内置包，属<b>正常代价</b></td><td class="no">排除</td></tr>
+<tr><td><b>每一句都慢</b></td><td>整条链路走的是<b>通用模型</b>（或通用模型档位导错）</td><td class="ok">✓ 命中</td></tr>
+<tr><td>卡很久，最后报「两次返回错误语种」</td><td>译文复读顶到 256 token 上限 + 重试，指向 <code>q4_0</code> 那份包</td><td class="no">排除</td></tr>
+</table>
+</div>
+<p class="muted">用户补充的四条信息把范围收得很窄：方向 <b>中→日</b>（在 hybrid 表里，本该走 OPUS）、
+引擎设 <b>智能选择</b>、<b>同一台 iPad mini 4 上以前快</b>、<b>每一句都慢</b>（非冷启动）。</p>
+</section>
+
+<section>
+<h2>三、排除法：四条假设都验过，都不是</h2>
+<div class="table-wrap">
+<table>
+<tr><th>假设</th><th>怎么查的</th><th>结论</th></tr>
+<tr><td>内置集合错了</td><td><code>ModelPackages.swift:195</code> 是 <code>installed ?? bundled</code>、两端无 <code>installed(.opus)</code> 旁路；内置目录用 <code>kind</code> 而不是 <code>id</code> 拼路径</td><td class="ok">✓ 正确，排除</td></tr>
+<tr><td>ORT 没链进真机切片</td><td><code>nm</code> 真机 binary → <b>56 个 <code>Ort*</code> 符号</b></td><td class="half">⚠️ 这条证据是假的</td></tr>
+<tr><td>装的是上一轮的旧产物</td><td>源码 mtime <code>16:50:05</code> &lt; 产物 <code>16:54:18</code>；<code>.app</code> 里 <code>0.2.10/13</code> 与本地 <code>Info.plist</code> 一致</td><td class="ok">✓ 是这一轮编的，排除</td></tr>
+<tr><td>导入的通用翻译包选错（<code>q4_0</code> / Gemma 4B）</td><td>陷阱真实存在（<code>q4km</code> 与 <code>q4_0</code> 只差几个字符，1.12 vs 1.07 GB），但症状应是「慢 + 偶尔译文发疯」</td><td class="half">不是本次原因</td></tr>
+</table>
+</div>
+<div class="callout warn">
+<b>第三条假设差点把结论带偏。</b><code>nm … | grep Ort</code> 数到 56 个符号，看起来「ORT 接进来了」——
+但这只证明了<b>归档被链上</b>，证明不了<b>宏被定义</b>。见下一节。
+</div>
+</section>
+
+<section>
+<h2>四、根因链</h2>
+<pre>ios/Config/Base.xcconfig:53
+  GCC_PREPROCESSOR_DEFINITIONS = $(inherited) $(VT_DEPS_DEFINES)
+                                          └── 由 Config/Deps.xcconfig 提供
+                                              ↑ scripts/setup-ios-deps.sh 生成
+                                              ↑ 那个脚本<b>从来没写过这一行</b>
+
+→ VT_DEPS_DEFINES 恒为空
+→ native/nmt/vt_ort.h:44-46 落到 <b>return nullptr</b>
+→ vt::Api() == nullptr
+→ VTOpusNmt.isAvailable() == NO
+→ OpusTranslationEngine.init 抛 nativeUnavailable("ONNX Runtime")
+→ Pipeline.loadOpusEngineIfPreferred() 静默 return nil
+→ <b>每一句都走 Qwen</b>（P50 1322 ms 对 OPUS 52 ms）</pre>
+
+<h3>那个三分支长这样</h3>
+<pre>inline const OrtApiBase *OrtApiBaseHandle() {
+#if defined(VT_ORT_DYNAMIC)      // Android：dlopen("libonnxruntime.so")
+  ...
+#elif defined(VT_ORT_STATIC)     // iOS：静态链，直接调 OrtGetApiBase()
+  return OrtGetApiBase();
+#else
+  return nullptr;                // ← iOS 一直走的是这里
+#endif
+}</pre>
+<p><code>VT_ORT_DYNAMIC</code> 只给 Android 定义（<code>app/src/main/cpp/CMakeLists.txt:43</code>）。
+全仓库 grep 下来，iOS 侧<b>两个宏都没有</b>。</p>
+</section>
+
+<section>
+<h2>五、🔴 为什么一直没被发现：「符号在」≠「宏在」</h2>
+<p><code>libonnxruntime.a</code> 是被 <code>VT_DEPS_LDFLAGS</code> <b>整体链进 App</b> 的
+（sherpa-onnx 本来就用它）。所以在最终 binary 里数 Ort 符号完全是假绿灯：</p>
+<pre>nm VoiceTranslator.app/VoiceTranslator | grep -c Ort
+宏定义了   → 56
+宏没定义   → 56      ← <b>假绿灯就在这一行</b></pre>
+
+<p>唯一能区分的判据是<b>编译单元</b>：宏生效时 <code>VTOpusNmt.o</code> 里必然产生一个
+未定义引用 <code>U _OrtGetApiBase</code>；宏不生效时那个引用<b>根本不会产生</b>。</p>
+
+<pre>nm …/Objects-normal/arm64/VTOpusNmt.o | grep OrtGetApiBase
+修复前：0 处（真机 + 模拟器两个切片都是）
+修复后：1 处   U _OrtGetApiBase</pre>
+<div class="callout bad">
+⚠️ <b>改 xcconfig 不保证触发重编。</b>判据跑在陈旧的 <code>.o</code> 上会给出假绿灯 ——
+必须 <code>--clean</code> 或 touch 源文件。<code>verify-opus-linkage.py</code> 的错误信息里写明了这一条。
+</div>
+</section>
+
+<section>
+<h2>六、修法：两处改动，缺一不可</h2>
+<div class="table-wrap">
+<table>
+<tr><th>文件</th><th>改动</th><th>为什么</th></tr>
+<tr>
+  <td><code>scripts/setup-ios-deps.sh</code></td>
+  <td><code>write_deps_xcconfig()</code> 在<b>各平台都有</b> <code>libonnxruntime.a</code> 时写
+      <code>VT_DEPS_DEFINES = VT_ORT_STATIC</code></td>
+  <td>不修这里，下次重跑依赖构建就把宏冲掉了 —— 问题会无声复发</td>
+</tr>
+<tr>
+  <td><code>ios/Config/Deps.xcconfig</code></td>
+  <td>现网这份补上同一行</td>
+  <td>或 <code>bash scripts/setup-ios-deps.sh --config-only</code> 重写（两者逐字节一致）</td>
+</tr>
+</table>
+</div>
+<div class="callout">
+<b>新增 <code>--config-only</code> 的理由是防错，不是省时间</b>：没有它，下一个人补这个宏时会去手工改
+<code>Deps.xcconfig</code> —— 而那个文件第一行写着「请勿手工维护」，下一次 setup 就冲掉了。
+</div>
+<p><b>为什么只在「各平台都有」时才定义</b>：只在其中一个平台有 ORT 的话，另一个平台会变成
+「宏定义了但库不在」→ 链接期 <code>Undefined symbols: _OrtGetApiBase</code>，
+等于把静默故障换成编译失败，也是退步。</p>
+</section>
+
+<section>
+<h2>七、两道闸 + 一条真判据</h2>
+<h3>闸 1（构建前，快）：配置里有没有那个宏</h3>
+<pre>python3 scripts/verify-opus-linkage.py --check-config</pre>
+<h3>闸 2（构建后，真判据）：目标文件里有没有真的生效</h3>
+<pre>python3 scripts/verify-opus-linkage.py --build-dir ios/build</pre>
+<p>两道都接在 <code>build-ios.sh</code> 里，<b>产物那道顶格写</b> ——
+不挂在 <code>if [ "$GATE_VARIANTS" = "1" ]</code> 下面，免得被 <code>--no-variant-gate</code> 顺手关掉。</p>
+
+<h3>守它的测试：<code>scripts/tests/test_opus_linkage.py</code>（10 条）</h3>
+<p>其中三条是<b>对自己的反向验证</b> —— 用真编译出来的两个 <code>.o</code> 对撞：</p>
+<ul>
+  <li>只引用普通符号（对应宏没生效） → 判据必须 <span class="no">exit 1</span></li>
+  <li>引用 <code>OrtGetApiBase</code>（对应宏生效） → 判据必须 <span class="ok">exit 0</span></li>
+  <li>一批里混一个坏的 → 整体必须变红（多切片构建会同时产出两份）</li>
+</ul>
+<p class="muted">这三条如果哪一天变成「两边都通过」，说明判据退化了。</p>
+</section>
+
+<section>
+<h2>八、验收证据（全部本机实测）</h2>
+<pre># 四种配置都带上了宏
+GCC_PREPROCESSOR_DEFINITIONS = DEBUG=1  VT_ORT_STATIC   （Debug · iphoneos）
+GCC_PREPROCESSOR_DEFINITIONS = DEBUG=1  VT_ORT_STATIC   （Debug · iphonesimulator）
+GCC_PREPROCESSOR_DEFINITIONS =           VT_ORT_STATIC   （Release · iphoneos）
+
+# 生成器逐字节复现（只差时间戳那一行）
+diff Deps.xcconfig.before Deps.xcconfig  →  仅第 1 行时间戳
+
+# 全量重编 + 装机
+bash scripts/build-ios.sh --device --clean
+  ** BUILD SUCCEEDED **
+  ✔ com.shiefzhang.voicetranslator 已安装（Debug 构建 · 0.2.10/13）      → iPad mini 4 (J96AP)
+  多变体：armv8a sdot=0 smmla=0 ✅ / dotprod sdot=560 ✓ / i8mm sdot=560 smmla=268 ✓
+  ==&gt; 判据：OPUS-MT 专用引擎在 iOS 上是活的
+    ✓ …/Objects-normal/arm64/VTOpusNmt.o 有未定义引用 _OrtGetApiBase（宏 VT_ORT_STATIC 生效）
+
+# 回归
+scripts/tests 全套 <b>109 项 OK</b>（99 + 新增 10）
+check-java-syntax 11/11 ✓ · model-tiers.py --verify EXIT=0 · lint-bash-nonascii-var 全绿</pre>
+<div class="callout warn">
+<code>build-ios.sh</code> 退出码非 0 是<b>沙箱</b>拦了 <code>~/.swiftpm/security</code> 与
+<code>login.keychain-db</code> 的写入，<b>不是构建失败</b> —— 判据要看输出里的
+<code>** BUILD SUCCEEDED **</code> 与安装回显。
+</div>
+</section>
+
+<section>
+<h2>九、新判据的负向验证：10 次注入</h2>
+<p>项目规矩是<b>没见它红过的判据不算判据</b> —— 逐条注入「故意写坏」的改动，断言指定测试变红，
+再用<b>开工时的字节快照</b>逐字节还原（不靠反向 patch），最后确认全套仍全绿。</p>
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>注入</th><th>结果</th></tr>
+<tr><td>1</td><td><code>setup-ios-deps.sh</code> 不再写 <code>VT_DEPS_DEFINES</code></td><td class="ok">✅ 变红</td></tr>
+<tr><td>2</td><td>去掉「各平台都有 <code>libonnxruntime.a</code>」这个前置探查</td><td class="ok">✅ 变红</td></tr>
+<tr><td>3</td><td>把宏挪出前置判断（无条件写出去）</td><td class="ok">✅ 变红</td></tr>
+<tr><td>4</td><td>去掉 <code>--config-only</code> 开关</td><td class="ok">✅ 变红</td></tr>
+<tr><td>5</td><td><code>build-ios.sh</code> 不再跑 <code>--check-config</code></td><td class="ok">✅ 变红</td></tr>
+<tr><td>6</td><td><code>build-ios.sh</code> 不再跑 <code>--build-dir</code></td><td class="ok">✅ 变红</td></tr>
+<tr><td>7</td><td>把 <code>--build-dir</code> 调用缩进（= 嵌进条件分支）</td><td class="ok">✅ 变红</td></tr>
+<tr><td>8</td><td><code>Deps.xcconfig</code> 里把宏置空</td><td class="ok">✅ 变红</td></tr>
+<tr><td>9</td><td>判据认不出「有引用」的正常目标文件（假红）</td><td class="ok">✅ 变红</td></tr>
+<tr><td>10</td><td>判据对「没有引用」的目标文件放行（假绿灯）</td><td class="ok">✅ 变红</td></tr>
+</table>
+</div>
+<p class="muted">第一轮跑出 7/9 时，两条没红的被逐个分清：</p>
+<div class="table-wrap">
+<table>
+<tr><th>类型</th><th>例子</th><th>修哪里</th></tr>
+<tr>
+  <td><b>判据是假的</b></td>
+  <td><code>assertIn("--config-only", text)</code> 被<b>注释里</b>的同名字串满足</td>
+  <td>收紧成只看非注释行 + 校验 <code>BUILD_SHERPA=0</code> / <code>BUILD_LLAMA=0</code></td>
+</tr>
+<tr>
+  <td><b>注入写错了</b></td>
+  <td>把 <code>ort_everywhere=1</code> 改成 <code>ort_everywhere_removed=1</code>，
+      而判据是 <code>assertIn("ort_everywhere")</code> —— <b>子串仍命中</b></td>
+  <td>改成真删掉那一段</td>
+</tr>
+</table>
+</div>
+<p><b>教训</b>：判据尽量写成<b>位置关系</b>（A 必须在 B 之后、必须在 else 之前）或<b>语义</b>，
+不要写成「文件里出现过某个词」。分不清「判据假」和「注入错」这两类，
+就会去「修」一条本来就是对的判据。</p>
+</section>
+
+<section>
+<h2>十、⚠️ 仍未验证的事（别当成已完成）</h2>
+<div class="callout bad">
+<b>A8 上的绝对延迟仍然未知。</b>修复只保证专用引擎「<b>够得着</b>」，
+不保证它在 iPad mini 4 上「<b>更快</b>」。
+仓库里那份 <code>NMT换引擎门禁报告.html</code> 第 9 节自己写着边界：
+</div>
+<blockquote style="margin:0;padding:14px 18px;border-left:4px solid #f5a524;background:#fff8e8;border-radius:8px">
+「但没有任何一条能证明它在 <b>A8</b> 上依然赢……这个 25× 是<b>桌面读数</b>，不是 iPad mini 4 的读数。
+ORT 的 macOS wheel <b>降不到 <code>armv8-a</code> 基线</b>，而 llama.cpp 侧能。
+也就是说：<b>OPUS 的真实优势有多少来自 dotprod，我们完全不知道</b>。
+……两侧都未在 iOS/Android 真机上测过。」
+</blockquote>
+<p>要闭合这个缺口，只有一件事可做：<b>在 iPad mini 4 上用同一套语料，把 llama.cpp 与 ORT 各跑一遍</b>。
+在那之前，「中译日该不该走 OPUS」这条策略都只是<b>桌面数据支撑的假设</b>。</p>
+<p>另外，端侧 OPUS 的<b>端到端</b>（装载 548 MiB 包 → 中译日真的出译文）在真机上同样未实测 ——
+这次修好的只是「装得起来」这一步。</p>
+</section>
+
+<footer>
+VoiceTranslator · v0.2.10 · 排障记录 · 2026-09-30<br>
+判据全集：<code>scripts/verify-opus-linkage.py</code> · <code>scripts/tests/test_opus_linkage.py</code><br>
+细节全文：<code>.workbuddy/memory/ENGINEERING-NOTES.md</code> §P · <code>ios/README.md</code> §5.10
+</footer>
+
+</main></body>
+</html>

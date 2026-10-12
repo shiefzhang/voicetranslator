@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 模型包部分回内置（v0.2.10）</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.half{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">MEASURED · 2026-09-30 · 第 5 轮 · v0.2.10</div>
+  <h1>部分收回「全都不内置」：<br>内置转写与专用翻译，通用翻译仍由用户导入</h1>
+  <p class="lead">需求原话：「<b>OPUS-MT 的翻译模型需要内置，转写模型也要内置，只有翻译模型需要自行导入</b>」。即把上一轮的「一份都不留」<b>部分收回</b> —— 装完即可转写、并可用专用引擎翻中英日；只有那个最大的通用翻译包留给你导一次。</p>
+  <p>结果：iOS 的 <code>.app</code> = <b>826 MB</b>（内置 777 MB + 本体 49 MB），已编真机切片并装到 <b>iPad mini 4</b>。内置集合由<b>三张写死的表</b>钉住，<code>build-ios.sh</code> 里加了一道「不扫 <code>models/</code> 也能跑」的一致性闸。负向验证做了 <b>17 次注入</b>，过程中揪出<b>三类此前没被发现的假绿灯</b>。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>826 MB</b>iOS 真机产物实测<br><span class="muted">内置 777 MB + 本体 49 MB</span></div>
+  <div class="metric"><b>{asr, opus}</b>内置集合恰好两项<br><span class="muted">translation 零命中</span></div>
+  <div class="metric"><b>22 项守卫 · 17 次注入</b>每条判据都见过它变红<br><span class="muted">逐字节还原后 99 项全绿</span></div>
+  <div class="metric"><b>3 个假绿灯</b>本轮新揪出<br><span class="muted">其中 1 个曾静默改坏源码</span></div>
+</div>
+
+<div class="callout warn">
+<b>一句话说清取舍</b>：内置的两份合计 777 MiB —— 没有转写整个 App 都跑不起来，专用翻译决定「智能选择」档能不能用上；
+而通用翻译 1.04 GiB 是三者里最大的，内置会让安装包直接翻倍。<b>代价</b>：Android 侧因 assets 只能流式读，
+首启必须解包到内部存储，同一份内容占两处（约 1.5 GiB）；iOS 没有这个代价。
+</div>
+</section>
+
+<section>
+<h2>一、三轮变迁：内置集合是一条规则，不是启发式</h2>
+<table>
+<thead><tr><th>版本</th><th>内置什么</th><th>iOS 产物</th><th>为什么变</th></tr></thead>
+<tbody>
+<tr><td>v0.2.6 ~ v0.2.8</td><td>三份全内置</td><td>约 1.8 GB</td><td>装完即用，但换档位必须重出安装包</td></tr>
+<tr><td>v0.2.9</td><td class="no">一份都不留</td><td>48 MB</td><td>安装包最小、档位自由，代价是首启要导三份</td></tr>
+<tr><td><b>v0.2.10</b></td><td class="ok">asr + opus</td><td><b>826 MB</b></td><td><b>本轮</b>：常见的两条路开箱即用，最大的那份留给用户</td></tr>
+</tbody>
+</table>
+
+<p>「谁内置」不能是「取体积最小的那些」——推荐档位就是活证据：<code>RECOMMENDED</code> 里
+<code>translation</code> 的推荐档是 <b>Q4_K_M</b>，而 <code>models/</code> 里 <b>Q3 更小</b>。
+任何隐式策略都会让它<b>静默漂档</b>，而输出看起来是「成功」。所以内置集合同样写死。</p>
+
+<p>真源只有一处 —— <code>scripts/model-tiers.py</code> 顶部三张表：</p>
+<pre>RECOMMENDED   = {"asr": …, "translation": …, "opus": …}   # 建议用户装哪些
+BUNDLED       = {"asr": …, "opus": …}                     # 随 App 分发哪些
+NEVER_BUNDLED = ("translation",)                          # 刻意永不打进包里</pre>
+<p>约束 <code>BUNDLED ⊆ RECOMMENDED</code> 且 <code>BUNDLED ∩ NEVER_BUNDLED = ∅</code>，在 <code>emit()</code> 里用 <code>die()</code> 拦。同一个脚本新增两个模式：</p>
+<ul>
+<li><code>--emit</code> —— <b>唯一往 App 目录写东西的地方</b>，先清空再重建两端产物（所以旧的 <code>translation</code> 不可能残留）；</li>
+<li><code>--verify</code> —— <code>build-ios.sh</code> 的那道闸。它<b>不读 <code>models/</code></b>，只比对两端产物与表，因此干净克隆上也能跑（产物目录在 <code>.gitignore</code> 里）。</li>
+</ul>
+
+<div class="callout bad">
+<b>为什么必须有这道闸：最阴的坏法是「多内置一份」。</b>一切正常工作，安装包凭空大 1 GiB，
+<b>没有任何报错</b>。跨四层 —— 脚本表 / 两端源码 / 两端产物 / 工程文件 —— 而这几层里
+<b>只有工程文件那层会编译失败</b>。
+</div>
+</section>
+
+<section>
+<h2>二、四层怎么落地</h2>
+<table>
+<thead><tr><th>层</th><th>iOS</th><th>Android</th></tr></thead>
+<tbody>
+<tr>
+  <td>产物形态</td>
+  <td><code>ios/BundledModels/{asr,opus}/</code> + <code>index.json</code><br><small>目录直接可用，<b>零额外用户空间</b></small></td>
+  <td><code>assets/bundled-models/{asr,opus}.vtmodel</code><br><small>assets 只能流式读</small></td>
+</tr>
+<tr>
+  <td>启动动作</td>
+  <td>无</td>
+  <td><code>MainActivity.prepareBundled()</code> 首启解包到内部存储<br><small>⚠️ <b>失败只记日志，不能拦住启动</b></small></td>
+</tr>
+<tr>
+  <td>取包入口</td>
+  <td><code>selected = installed ?? bundled</code></td>
+  <td><code>selected(ctx,kind)</code> 同语义</td>
+</tr>
+<tr>
+  <td>设置页</td>
+  <td colspan="2">三态徽章「<b>内置</b> / <b>已导入</b> / <b>未就绪</b>」；「移除」只在「已导入」时出现（内置那份删不掉）</td>
+</tr>
+</tbody>
+</table>
+
+<h3>iOS 为什么必须是 folder reference</h3>
+<p><code>gen-ios-project.py</code> 写的是 <code>lastKnownFileType = folder;</code>，不是 group。
+<b>group 会把目录压平到 bundle 根</b> —— <code>asr/manifest.json</code> 与
+<code>opus/manifest.json</code> 撞名，<b>后一个静默覆盖前一个</b>，构建期完全看不出来。
+验收判据（不能用 <code>ls</code>，要数 manifest）：</p>
+<pre>find X.app/BundledModels -name manifest.json   # 必须每个 kind 恰好一条</pre>
+
+<h3>两端唯一的取包入口</h3>
+<pre>static func selected(_ kind: Kind) -&gt; URL? { installed(kind) ?? bundled(kind) }</pre>
+<p>任何一个调用点直接调 <code>installed</code>，内置那一份在<b>那个点</b>就永远看不到 ——
+症状是「设置成智能选择但一直在用通用模型」，<b>不报错，只是变慢</b>。
+<code>Pipeline.loadOpusEngineIfPreferred()</code> 就属于这种位置。</p>
+
+<div class="callout">
+<b><code>selected()</code> 返回 nil 是正常状态，不是错误。</b><code>translation</code> 没有内置可回落，
+首次启动它就是「未就绪」。两端都要按未就绪处理，并<b>说清缺的是哪一份</b>
+（不是笼统一句「先准备模型包」）。另外 <code>index.json</code> <b>必须是顶层数组</b> ——
+iOS 的 <code>bundledIndex</code> 就是这么解它的，改成对象会让 App 静默读到空索引、三行全显「未就绪」。
+</div>
+</section>
+
+<section>
+<h2>三、验收证据（全部本机实测）</h2>
+
+<h3>内置产物</h3>
+<pre>ios/BundledModels/                asr/(229 M) opus/(548 M) index.json
+app/.../assets/bundled-models/    asr.vtmodel(240203214) opus.vtmodel(574813619)
+
+find BundledModels -name manifest.json   →  两条（每 kind 一条）  ✓ folder 没被压平
+find BundledModels -iname '*translation*' | wc -l  →  0            ✓
+
+grep -c BundledModels project.pbxproj   →  6
+lastKnownFileType = folder;             →  存在
+python3 scripts/model-tiers.py --verify →  EXIT=0</pre>
+
+<h3>真机产物 <code>Debug-iphoneos/VoiceTranslator.app</code>（16:54 本轮构建）</h3>
+<pre>CFBundleShortVersionString / CFBundleVersion = 0.2.10 / 13   ← 与本地 Info.plist 一致
+du -sh .                  →  826M
+du -sh BundledModels      →  777M      ← 本体约 49 MB
+lipo -info VoiceTranslator →  arm64</pre>
+
+<div class="callout warn">
+<b>⚠️ 这里差点被坑。</b><code>build-ios.sh</code> <b>默认只编模拟器切片</b>，真机要加 <code>--device</code>。
+第一次没加就直接去看 <code>Debug-iphoneos/</code>，读到的是 <b>14:40 的旧产物</b> ——
+版本 0.2.9、连 <code>BundledModels</code> 都没有，<b>差点判成「内置没生效」</b>。
+固定动作：读产物里的版本号与本地 <code>Info.plist</code> 对齐，<b>两个切片分别看，<code>mtime</code> 也要看</b>。
+</div>
+
+<h3>编译与安装</h3>
+<pre>bash scripts/build-ios.sh --device
+  ==> 设备：c0251041… (J96AP, iPad mini 4, iphoneos, arm64, 15.8.8)
+  ** BUILD SUCCEEDED **
+  ✔ com.shiefzhang.voicetranslator 已安装（Debug 构建 · 0.2.10/13）
+
+  多变体指令集判据：VoiceTranslator（符号 130559，指令 6378989）
+    armv8a   sdot=0    smmla=0     ✅ 基线：0 条 dotprod/i8mm（A8 不可能 SIGILL）
+    dotprod  sdot=560  smmla=0     ✓ 确实用上了扩展
+    i8mm     sdot=560  smmla=268   ✓ 确实用上了扩展</pre>
+<p class="muted">⚠️ 那次 <code>build-ios.sh</code> 的退出码是非 0，但<b>不是构建失败</b> ——
+是沙箱拦了 <code>~/.swiftpm/security</code> 与 <code>login.keychain-db</code> 的写入。
+判据要看输出里的 <code>** BUILD SUCCEEDED **</code> 与安装回显，<b>不能只看退出码</b>。</p>
+
+<h3>回归</h3>
+<table>
+<thead><tr><th>门禁</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td><code>python3 -m unittest discover -s scripts/tests</code></td><td class="ok">99 项 OK</td></tr>
+<tr><td><code>scripts/check-java-syntax.py</code></td><td class="ok">11 / 11 通过</td></tr>
+<tr><td><code>scripts/lint-bash-nonascii-var.py</code></td><td class="ok">全部脚本绿</td></tr>
+<tr><td><code>scripts/verify_model_languages.py</code></td><td class="ok">五语契约通过</td></tr>
+</tbody>
+</table>
+<p class="muted">⚠️ <code>check-java-syntax.py</code> 依赖 <code>tree_sitter</code> / <code>tree_sitter_java</code>，
+要用仓库外的隔离解释器跑（系统 python 会报缺依赖）。</p>
+</section>
+
+<section>
+<h2>四、负向验证：17 次注入，揪出三个假绿灯</h2>
+<p>项目约定是「<b>没见它红过的判据不算判据</b>」。所以 <code>scripts/tests/test_bundled_models.py</code>
+的每条判据都喂了「故意写坏」的输入：注入 → 断言目标判据变红 → 逐字节还原 → 确认全绿。</p>
+
+<table>
+<thead><tr><th>#</th><th>注入</th><th>应当变红的判据</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td>1-2</td><td>把 translation 也内置进 iOS</td><td>NEVER_BUNDLED 存在性 / 产物集合</td><td class="ok">✅ 变红</td></tr>
+<tr><td>3-4</td><td>把 translation 也放进 Android assets</td><td>Android 产物集合 / NEVER_BUNDLED</td><td class="ok">✅ 变红</td></tr>
+<tr><td>5-6</td><td>改 <code>model-tiers.py</code> 的 BUNDLED 表</td><td>translation 不在 BUNDLED / ⊆ RECOMMENDED</td><td class="ok">✅ 变红</td></tr>
+<tr><td>7</td><td>index.json 里多列一个 kind</td><td>索引 == BUNDLED</td><td class="ok">✅ 变红</td></tr>
+<tr><td>8</td><td><b>工程里把 BundledModels 从 Resources 阶段删掉</b></td><td>真正决定打包的那一条</td><td class="ok">✅ 变红</td></tr>
+<tr><td>9-10</td><td>删掉文件引用对象 / 改成 Asset Catalog</td><td>必须是 folder reference</td><td class="ok">✅ 变红</td></tr>
+<tr><td>11</td><td>Resources 阶段多插一条形态正确的条目</td><td>条目数判据</td><td class="ok">✅ 变红</td></tr>
+<tr><td>12-13</td><td>绕过 <code>selected</code> 直调 <code>installed</code></td><td>唯一入口 / 专用引擎走 selected</td><td class="ok">✅ 变红</td></tr>
+<tr><td>14-15</td><td>目录名常量漂移 / hasBundled 加 translation</td><td>四处目录名一致 / 回落表 == BUNDLED</td><td class="ok">✅ 变红</td></tr>
+<tr><td>16-17</td><td><code>build-ios.sh</code> 去掉 <code>--verify</code> / 生成器不再产 folder</td><td>闸还在跑 / 压平会撞名</td><td class="ok">✅ 变红</td></tr>
+</tbody>
+</table>
+<p class="muted">17 条全部做到「只让目标判据变红」，还原后 <b>99 项全绿</b>。</p>
+
+<h3>假绿灯之一：判据按字面量数</h3>
+<div class="callout bad">
+<code>BundledModels</code> 这个字符串在 <code>project.pbxproj</code> 里出现 <b>四次</b>：
+文件引用对象、构建文件对象、root group 的 children、<b>Resources 阶段</b>。
+<b>唯一决定「打不打包」的是最后那个。</b>把它删掉，<code>assertIn("BundledModels", text)</code>
+<b>照样通过</b> —— 判据是假的。<br>
+同源坑：<code>assertIn("--verify", text)</code> 会被<b>注释里的</b> <code>--verify</code> 骗过
+（<code>build-ios.sh:65</code> 的注释里就有）。<br>
+<b>两条都已收紧</b>：前者改成语义判据（在 Resources 阶段那一段里数），后者只看非注释行。
+</div>
+
+<h3>假绿灯之二：快照式的「还原是否干净」是自指的</h3>
+<div class="callout bad">
+负向验证脚本第一版把还原核对写成「和开工时逐字节相同」——这是<b>自指</b>的：
+开工时树里已经躺着一个脏文件，快照就把它记成基线，还原后「完全一致」✅，
+这份垃圾被<b>永久洗白</b>，脚本报「干净」而判据其实是红的。<br>
+<b>实测踩到了</b>：<code>assets/bundled-models/translation.vtmodel</code> 因此一路留到下一次运行，
+直到基线变红才暴露。<br>
+更糟的是它第一次还在 <code>finally: undo()</code> 里崩过：<b>注入成功、还原锚点写错 → 崩溃 →
+注入成了永久性的</b> —— 它悄悄删掉了 <code>ModelPackages.swift</code> 的 <code>selected</code> 回落，
+而 <code>git status</code> 只显示「文件被改过」，和本轮正常改动混在一起看不出来。<br>
+<b>两条硬规矩</b>：① 快照<b>之前</b>先<b>独立</b>断言产物本来就对（不能复用被测判据，否则是用被测对象证明自己）；
+② 还原靠<b>开工时的字节快照</b>，不靠反向 patch。
+</div>
+
+<h3>假绿灯之三：以为编了真机切片</h3>
+<div class="callout bad">
+<code>build-ios.sh</code> 默认只编模拟器。没加 <code>--device</code> 就去验收
+<code>Debug-iphoneos/</code>，读到的是<b>上一轮 14:40 的产物</b>。
+这类问题在 <code>git status</code> 里<b>完全看不出来</b>（<code>ios/build*/</code> 在
+<code>.gitignore</code> 里）。<b>修法不是改脚本，而是固化验收动作</b>：读产物版本号 + 看 <code>mtime</code>。
+</div>
+
+<h3>还有一类「失败」不是假绿灯，而是注入写错了</h3>
+<p>同一轮里有 4 条注入<b>没有变红</b>，但根因是<b>注入的问题、不是判据的问题</b>：</p>
+<ul>
+<li>锚点 <code>'"opus": "opus-mt-zh-en-ja-v1",\n}'</code> 在 <code>RECOMMENDED</code> 与
+<code>BUNDLED</code> 里<b>各出现一次</b>，<code>replace(…, 1)</code> 命中了前者 ——
+于是「往 BUNDLED 里加 translation」实际加进了 RECOMMENDED，判据当然不红；</li>
+<li>另一条注入的形状不对（写成 <code>… = {</code> 结尾，而计数判据只数以 <code>,</code> 结尾的行）；</li>
+<li>还有一条的还原锚点根本不存在。</li>
+</ul>
+<div class="callout">
+<b>这个区分本身很重要</b>：分不清「判据是假的」和「注入写错了」，
+就会去<b>修一条本来正确的判据</b>，或者把真正的假绿灯留在原地。
+</div>
+</section>
+
+<section>
+<h2>五、顺带修掉 / 已知遗留</h2>
+<h3>顺带</h3>
+<ul>
+<li><code>test_model_pack.py</code> 里断言了整句 <code>'推荐档位体检不通过'</code>，
+而本轮把消息有意扩成了 <code>'推荐/内置档位体检不通过'</code>（内置包体检不过同样是硬失败）→
+改成断言<b>稳定子串</b>，并追加一条「必须把致错的档位 id 打出来」。
+<b>教训</b>：锁整句人话会在有意扩展文案时假红，锁语义子串 + 关键字段更耐用。</li>
+<li><code>MEMORY.md</code> 整理：<b>16970 → 12999 字节</b>（去重、更新到 v0.2.10、
+细节移入附录新增的 <b>§O</b>），并接上了被打断的章节编号。</li>
+<li>文档口径同步：<code>README.md</code> 与 <code>ios/README.md</code> 里「不再内置」的段落
+已重写，历史小节加了「本节结论已被 v0.2.10 推翻」的横幅（<code>ios/README.md</code> 新增 §5.10）。</li>
+</ul>
+
+<h3>遗留（未做，已知）</h3>
+<table>
+<thead><tr><th>项</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td><b>真机端到端</b>（录音 → VAD → ASR → 翻译）</td><td class="half">未实测 —— 需在 iPad 上人工跑一遍（通用翻译要先导入）</td></tr>
+<tr><td>Android 多变体指令集派发</td><td class="half">未做 —— 本机没有 NDK</td></tr>
+<tr><td><code>n_threads</code> / <code>n_threads_batch</code> 自适应</td><td class="half">未测 —— 两个旋钮的最优解很可能不相等</td></tr>
+<tr><td>A8（iPad mini 4）上的绝对推理速度</td><td class="half">仍是推算，真机没测过</td></tr>
+<tr><td>App 图标 / Asset Catalog</td><td class="no">未做</td></tr>
+</tbody>
+</table>
+</section>
+
+<footer>
+  VoiceTranslator v0.2.10 · 2026-09-30 · 本轮改动：<code>scripts/model-tiers.py</code>（新增 <code>--emit</code> / <code>--verify</code>）、
+  <code>scripts/gen-ios-project.py</code>、<code>scripts/build-ios.sh</code>、<code>ModelPackages.swift</code>、
+  <code>ModelPackages.java</code>、<code>MainActivity.java</code>、<code>AppModel.swift</code>、<code>Pipeline.swift</code>、
+  <code>SettingsView.swift</code>、<code>scripts/tests/test_bundled_models.py</code>（新增，22 条）、<code>.gitignore</code>、
+  <code>app/build.gradle</code>、<code>ios/Info.plist</code>、<code>README.md</code>、<code>ios/README.md</code>。
+</footer>
+
+</main></body></html>

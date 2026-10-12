@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceTranslator · 翻译引擎设置项落地报告（v0.2.7）</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1a1d21; --ink2:#5b636e; --ink3:#8b939e;
+    --line:#e4e7ec; --line2:#eef0f3;
+    --ok:#1f8a4c; --okbg:#e9f7ee; --warn:#a86400; --warnbg:#fdf3e0;
+    --bad:#b03030; --badbg:#fdeceb; --info:#20618a; --infobg:#e8f2f8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16181c; --panel:#1e2126; --ink:#e8eaed; --ink2:#a8b0ba; --ink3:#7c848f;
+      --line:#2f343b; --line2:#262a30;
+      --ok:#5cc98b; --okbg:#16281d; --warn:#e0a94a; --warnbg:#2b2314;
+      --bad:#e57373; --badbg:#2d1a19; --info:#6db4dd; --infobg:#152429;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:44px 24px 72px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  h1{margin:0 0 6px;font-size:27px;letter-spacing:-.4px}
+  .sub{color:var(--ink2);font-size:13.5px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  h2{font-size:16px;margin:38px 0 14px;padding-left:11px;border-left:3px solid var(--ink);letter-spacing:-.1px}
+  h2.bad{border-left-color:var(--bad);color:var(--bad)}
+  h2.ok{border-left-color:var(--ok);color:var(--ok)}
+  h2.warn{border-left-color:var(--warn);color:var(--warn)}
+  h3{font-size:14px;margin:22px 0 8px;color:var(--ink)}
+
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px}
+  .vcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .vcard .k{font-size:11.5px;color:var(--ink3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px}
+  .vcard .v{font-size:19px;font-weight:650;letter-spacing:-.3px}
+  .vcard .n{font-size:12px;color:var(--ink2);margin-top:3px}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px;margin:0}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line2);vertical-align:top}
+  th{background:var(--line2);font-weight:600;font-size:12px;color:var(--ink2);
+     letter-spacing:.3px;text-transform:uppercase}
+  tr:last-child td{border-bottom:none}
+  td.m{font-family:var(--mono);font-size:12.2px;word-break:break-all}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .dim{color:var(--ink3)}
+
+  .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px;
+    font-weight:600;white-space:nowrap;line-height:1.6}
+  .t-ok{background:var(--okbg);color:var(--ok)}
+  .t-warn{background:var(--warnbg);color:var(--warn)}
+  .t-bad{background:var(--badbg);color:var(--bad)}
+  .t-info{background:var(--infobg);color:var(--info)}
+
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:12.4px;
+    line-height:1.62;margin:0;color:var(--ink)}
+  pre .c{color:var(--ink3)}
+  pre .g{color:var(--ok)}
+  pre .r{color:var(--bad)}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--line2);padding:1px 5px;border-radius:4px}
+
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--info);
+    border-radius:0 10px 10px 0;padding:13px 16px;font-size:13.3px;color:var(--ink2)}
+  .note b{color:var(--ink)}
+  .note.bad{border-left-color:var(--bad)}
+  .note.warn{border-left-color:var(--warn)}
+  .note.ok{border-left-color:var(--ok)}
+  .sp{margin-top:14px}
+
+  ol,ul{margin:8px 0 0;padding-left:22px}
+  li{margin:6px 0;font-size:13.5px;color:var(--ink2)}
+  li b{color:var(--ink)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 0}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13px}
+  .node.hit{border-color:var(--bad);background:var(--badbg);color:var(--bad);font-weight:600}
+  .node.ok{border-color:var(--ok);background:var(--okbg);color:var(--ok);font-weight:600}
+  .arw{color:var(--ink3);font-size:14px}
+
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12.3px;color:var(--ink3);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>「翻译引擎」设置项落地报告</h1>
+  <div class="sub">
+    VoiceTranslator 双端 <b>v0.2.7</b>（Android versionCode 9 / iOS build 10）&nbsp;·&nbsp;
+    新增设置项 + OPUS-MT 专用引擎接线 + 内置打包&nbsp;·&nbsp;
+    <b>双端构建通过，真机安装待解锁</b>
+  </div>
+</header>
+
+<div class="verdict">
+  <div class="vcard">
+    <div class="k">设置项</div>
+    <div class="v">2 档 · 两端对齐</div>
+    <div class="n">智能选择 / 统一模型</div>
+  </div>
+  <div class="vcard">
+    <div class="k">收益依据</div>
+    <div class="v">P95 102 ms</div>
+    <div class="n">通用模型 1495 ms（门禁实测）</div>
+  </div>
+  <div class="vcard">
+    <div class="k">内置体积</div>
+    <div class="v">1843 MB</div>
+    <div class="n">asr 229 + translation 1066 + opus 548</div>
+  </div>
+  <div class="vcard">
+    <div class="k">验证</div>
+    <div class="v">构建 ×2 通过</div>
+    <div class="n">模拟器 + iphoneos</div>
+  </div>
+</div>
+
+<h2 class="ok">一、需求逐条对照</h2>
+
+<table>
+  <tr><th style="width:38%">要求（原话拆解）</th><th style="width:12%">状态</th><th>落在哪里</th></tr>
+  <tr>
+    <td>设置里加一个「翻译引擎」选项</td>
+    <td><span class="tag t-ok">完成</span></td>
+    <td class="m">iOS SettingsView.swift（PickerTarget.backend）<br>Android MainActivity.settings() → backend()</td>
+  </tr>
+  <tr>
+    <td>默认：中英互译 + 中译日走 OPUS</td>
+    <td><span class="tag t-ok">完成</span></td>
+    <td class="m">TranslationBackend.prefersOpus()：{(zh,en),(en,zh),(zh,ja)}</td>
+  </tr>
+  <tr>
+    <td>默认：其余语向走 Qwen</td>
+    <td><span class="tag t-ok">完成</span></td>
+    <td class="m">Pipeline.loadTranslationModel() 的回落后半段</td>
+  </tr>
+  <tr>
+    <td>或者：全部使用 Qwen</td>
+    <td><span class="tag t-ok">完成</span></td>
+    <td class="m">TranslationBackend.UNIFIED / .unified</td>
+  </tr>
+  <tr>
+    <td>真正接线（不只是 UI 开关）</td>
+    <td><span class="tag t-ok">完成</span></td>
+    <td class="m">两端 Pipeline 按语向路由到不同引擎</td>
+  </tr>
+  <tr>
+    <td>偏好持久化</td>
+    <td><span class="tag t-ok">完成</span></td>
+    <td class="m">iOS @AppStorage("backend") ／ Android SharedPreferences("vt")</td>
+  </tr>
+</table>
+
+<div class="note sp">
+<b>「中译日算进来、日译中不算」不是随手挑的。</b>
+依据 2026-09-28 的 20 条 / 4 语向门禁：<code>zh→ja</code> OPUS 赢（关键错误率 33% vs 50%）；
+<code>zh↔en</code> 打平；<code>ja→zh</code> 是最弱的一向（75% vs 50%）—— 官方根本没有
+<code>ja→zh</code> 模型，只能 <code>ja→en→en-zh</code> 两跳，误差会叠加。
+端侧包因此只装三条接线，<b>刻意不含 <code>ja-zh</code></b>。
+</div>
+
+<h2>二、两端接线：三层判定 + 静默回落</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:10px 0 0">
+设置项只表达<b>意图</b>；真正决定用哪个引擎的是 Pipeline 装载时的三层判定。
+每一层都能独立地让这次会话回到通用模型 —— 所以这个选项<b>永远不会把 App 变砖</b>：
+「智能选择」在没有 opus 包的构建上等价于「统一模型」。
+</p>
+
+<div class="flow sp">
+  <div class="node">① 档位与语向<br><span class="dim">纯策略，不碰磁盘</span></div>
+  <span class="arw">→</span>
+  <div class="node">② 有没有可用专用包<br><span class="dim">没内置 / 没导入 / --omit opus</span></div>
+  <span class="arw">→</span>
+  <div class="node">③ ORT 与包可装载<br><span class="dim">且语向在 routes.txt 里</span></div>
+  <span class="arw">→</span>
+  <div class="node ok">OpusNmt / OpusTranslationEngine</div>
+</div>
+<div class="flow" style="margin-top:8px">
+  <div class="node">任一层不满足</div>
+  <span class="arw">→</span>
+  <div class="node">LocalLlm（通用模型）</div>
+  <span class="arw">→</span>
+  <div class="node">只写日志，不弹窗、不报错</div>
+</div>
+
+<h3>改设置不打断当前会话</h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:6px 0 0">
+引擎是在<b>每次开始翻译时</b>装载的，所以改这一项不会打断正在进行的会话，
+只是本次仍走已装载的那个。两端选项说明里都写明「改动在下次开始翻译时生效」。
+</p>
+
+<h3>两端实现差异（有意为之）</h3>
+<table class="sp">
+  <tr><th style="width:22%">层</th><th style="width:39%">iOS</th><th>Android</th></tr>
+  <tr><td>推理核心</td><td class="m" colspan="2">共用 <code>native/nmt/vt_opus.cc</code>（一份实现，译文才不漂移）</td></tr>
+  <tr><td>接口层</td><td class="m">VTOpusNmt.mm（ObjC++ 静态链接）</td><td class="m">vt_opus_jni.cpp（JNI · dlopen）</td></tr>
+  <tr><td>Java/Swift 封装</td><td class="m">OpusTranslationEngine + VTOpusNmt</td><td class="m">OpusNmt（合成一个类，少一层噪音）</td></tr>
+  <tr><td>设置项载体</td><td class="m">@AppStorage + CaseIterable 枚举</td><td class="m">SharedPreferences + enum</td></tr>
+</table>
+
+<h2>三、模型包契约扩到三档 kind</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:10px 0 0">
+原来的 <code>asr</code> / <code>translation</code> 之外新增 <code>opus</code>。
+它有一处<b>结构性不同</b>：OPUS 是「一个语向一个模型」，默认包只有 zh/en/ja，
+凑不齐五语 —— 所以 <code>languages</code> 允许是五语的<b>非空子集</b>。
+但<b>越界（fr/de/ru）一样拒绝</b>，子集不是放水。
+</p>
+
+<table class="sp">
+  <tr><th style="width:30%">kind</th><th style="width:20%">engine</th><th style="width:20%">languages</th><th>必需文件</th></tr>
+  <tr><td class="m">asr</td><td class="m">sherpa-sensevoice</td><td>恰好五语</td><td class="m">model.int8.onnx · tokens.txt · silero_vad.onnx</td></tr>
+  <tr><td class="m">translation</td><td class="m">llama-qwen2 / llama-gemma3</td><td>恰好五语</td><td class="m">model.gguf</td></tr>
+  <tr><td class="m">opus</td><td class="m">opus-mt-marian</td><td><b>五语非空子集</b></td><td class="m">routes.txt · norm/nfkc.bin</td></tr>
+</table>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:12px 0 0">
+契约三处同步：<code>scripts/model_pack.py</code> · <code>ios/…/ModelPackages.swift</code> ·
+<code>app/…/ModelPackages.java</code>。回归测试从 <b>17 项加到 20 项</b>。
+</p>
+
+<div class="note warn sp">
+<b><code>opus</code> 是「非必需」的</b>（<code>Kind.isRequired == false</code>）：
+没有它不该拦住用户开始录音。Android <code>start()</code> 里也刻意不校验 opus ——
+传 <code>null</code> 进 Pipeline，由设置档位判定后回落。
+</div>
+
+<h2 class="bad">四、两个真 bug（本轮顺手挖出来的）</h2>
+
+<h3>① <code>bundle-models.py</code> 会静默把内置包降档</h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:6px 0 0">
+脚本原本的默认策略是「<b>每个 kind 取体积最小的包</b>」。而实际内置的 <code>translation</code>
+是 <b>Q4_K_M</b>（依据：armv8-a 基线下 Q4_K_M 速度口径第一，质量又优于 Q4_0；Q4_0 还会在中译粤时
+稳定复读崩坏）。偏偏 <code>models/</code> 里 <b>Q3 更小</b> —— 于是：
+</p>
+<div class="note bad sp">
+任何一次<b>不带 <code>--pick</code></b> 的重跑（README、<code>build-ios.sh</code> 的提示、
+报告里的命令<b>全都不带</b>）都会把两端内置包<b>一起从 Q4_K_M 静默降到 Q3</b>，
+而输出是「成功、体积还变小了」—— 看日志完全发现不了。
+</div>
+<table class="sp">
+  <tr><th style="width:34%">候选</th><th class="num">体积</th><th style="width:22%">旧策略</th><th>现在</th></tr>
+  <tr><td class="m">qwen25-1.5b-q3</td><td class="num">882 MB</td><td><span class="tag t-bad">会被选中</span></td><td><span class="tag t-info">跳过</span></td></tr>
+  <tr><td class="m">qwen25-1.5b-q4_0</td><td class="num">1017 MB</td><td><span class="tag t-info">跳过</span></td><td><span class="tag t-info">跳过</span></td></tr>
+  <tr><td class="m">qwen25-1.5b-q4km</td><td class="num">1066 MB</td><td><span class="tag t-bad">会被跳过</span></td><td><span class="tag t-ok">选中（钉住）</span></td></tr>
+</table>
+<p style="font-size:13.5px;color:var(--ink2);margin:12px 0 0">
+修法：脚本顶部加 <code>DEFAULT_PICKS</code> 把三档钉死，表里没有的 kind 才回落取最小；
+输出里写明每一档的<b>依据</b>（<code>--pick 指定</code> / <code>DEFAULT_PICKS 钉住</code> /
+<code>回落取最小</code>）；钉的包不在 <code>models/</code> 下时<b>写 stderr</b> 说清楚，不假装选中了它。
+</p>
+
+<h3>② 用户导入后来源永远显示「内置」</h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:6px 0 0">
+<code>ModelPackages.install()</code> 的 <b>ZipFile 快路径漏了 <code>remove(kind+"Bundled")</code></b>
+（流式路径 <code>unpack()</code> 一直有）。后果：先内置、之后又导入自己包的用户，
+设置页会一直标「内置」，而且<b>不显示「恢复内置」入口</b> —— 三档之后更容易撞上。
+</p>
+
+<h2>五、验证证据</h2>
+
+<table>
+  <tr><th style="width:30%">检查</th><th style="width:16%">结果</th><th>细节</th></tr>
+  <tr>
+    <td>iOS 模拟器构建</td>
+    <td><span class="tag t-ok">通过</span></td>
+    <td class="m">** BUILD SUCCEEDED ** · iphonesimulator27.0 · arm64</td>
+  </tr>
+  <tr>
+    <td>iOS 真机构建</td>
+    <td><span class="tag t-ok">通过</span></td>
+    <td class="m">** BUILD SUCCEEDED ** · iphoneos · arm64 · 最低系统 15.0</td>
+  </tr>
+  <tr>
+    <td>iOS 工程生成幂等</td>
+    <td><span class="tag t-ok">通过</span></td>
+    <td class="m">重跑 gen-ios-project.py 前后 pbxproj 无 diff</td>
+  </tr>
+  <tr>
+    <td>端侧 C++ vs Python 参考实现</td>
+    <td><span class="tag t-ok">20/20</span></td>
+    <td class="m">scripts/verify-opus-package.py · 4 个语向逐字一致</td>
+  </tr>
+  <tr>
+    <td>Android Java 语法</td>
+    <td><span class="tag t-ok">8/8</span></td>
+    <td class="m">scripts/check-java-syntax.py（tree-sitter 真解析）</td>
+  </tr>
+  <tr>
+    <td>native C++ 语法</td>
+    <td><span class="tag t-ok">3/3</span></td>
+    <td class="m">vt_opus_jni.cpp · vt_opus.cc · ssentencepiece.cc</td>
+  </tr>
+  <tr>
+    <td>模型包契约单测</td>
+    <td><span class="tag t-ok">20 passed</span></td>
+    <td class="m">scripts/tests/test_model_pack.py（原 17 项 + 新增 3 项）</td>
+  </tr>
+  <tr>
+    <td>真机安装</td>
+    <td><span class="tag t-bad">被挡</span></td>
+    <td class="m">Error 0xe800001a: The device is passcode protected.</td>
+  </tr>
+</table>
+
+<h3>本机没有 JDK / Android SDK，Android 侧怎么验的</h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:6px 0 0">
+写了两支自建检查器，都做了<b>反例测试</b>（注入故障确认它真的会失败）：
+</p>
+<pre class="sp"><span class="c"># Java：tree-sitter 的 Java 语法做真解析，报 ERROR / MISSING 节点</span>
+$ python3 scripts/check-java-syntax.py
+<span class="g">✓ 8 个 Java 文件的语法都通过</span>
+
+<span class="c"># native：clang++ -fsyntax-only + 运行时生成的最小 jni.h 替身（不入库）</span>
+$ python3 scripts/check-native-syntax.py
+<span class="g">✓ app/src/main/cpp/vt_opus_jni.cpp</span>
+<span class="g">✓ native/nmt/vt_opus.cc</span>
+<span class="g">✓ …/ssentencepiece/csrc/ssentencepiece.cc</span></pre>
+
+<div class="note bad sp">
+<b>写第一版 Java 检查器时踩了一格，值得记下来：</b>
+tree-sitter 的 MISSING 节点 <code>type</code> 是「<b>缺的那个 token 本身</b>」
+（少一个分号时 <code>type == ";"</code>），不是字面量 <code>"MISSING"</code>。
+我按 <code>node.type in {"ERROR","MISSING"}</code> 写，结果<b>一条都报不出来，
+输出照旧是「✓ 全部通过」</b>。靠反例测试才抓到。
+<b>任何自建检查器，都必须先用故意写坏的输入验一遍「它真的会失败」。</b>
+</div>
+
+<h2>六、内置打包的账</h2>
+
+<table>
+  <tr><th style="width:26%">平台</th><th style="width:22%">之前</th><th style="width:22%">现在</th><th>说明</th></tr>
+  <tr>
+    <td>iOS</td>
+    <td class="num">1.3 GB</td>
+    <td class="num"><b>1.8 GB</b></td>
+    <td>解包后的只读目录进 bundle，设备上不再多占一份</td>
+  </tr>
+  <tr>
+    <td>Android（APK）</td>
+    <td class="num">1295 MB</td>
+    <td class="num"><b>1843 MB</b></td>
+    <td>assets 只能流式读，必须放 zip</td>
+  </tr>
+  <tr>
+    <td>Android（首启解出后）</td>
+    <td class="num">2590 MB</td>
+    <td class="num"><b>3686 MB</b></td>
+    <td>native 要真实路径，运行期再解一份</td>
+  </tr>
+</table>
+
+<div class="note sp">
+不想要 opus 那 548 MB：<code>bundle-models.py --omit opus</code>。
+App 会自动把「智能选择」降级成「统一模型」，并在设置页底部明说
+「没有专用翻译包，中英互译与中译日会走通用模型」—— 不会变砖。
+</div>
+
+<h2 class="warn">七、仍未打勾的一格：A8 真机实跑</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:10px 0 0">
+iPad mini 4 就<b>连在 USB 上</b>（<code>ios-deploy -c</code> 能看到 J96AP / 15.8.8），
+真机构建也过了 —— 但安装这一步被设备的锁屏挡住了：
+</p>
+
+<pre class="sp">[  0%] … iPad mini 4 … connected through USB, beginning install
+<span class="r">Error 0xe800001a: The device is passcode protected.</span>
+     AMDeviceSecureTransferPath(0, device, url, options, transfer_callback, 0)</pre>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:12px 0 0">
+解锁后重跑即可（脚本里已有这条排障说明）：
+</p>
+<pre class="sp">bash scripts/install-ipad.sh --udid c025104116a3f342e1cabcfecfff2ed459d7d05d</pre>
+
+<div class="note warn sp">
+<b>所以「A8 上的绝对速度」依旧没被观测过。</b>
+已确认的只是：代码在 arm64 真机目标上编得过、端侧 C++ 与 Python 参考实现 20/20 逐字一致、
+导入/装载/路由的逻辑都有回归保护。真正没验的是<b>这一颗 CPU 上装载要多久、第一句要多久</b>
+—— 仍然是整个项目最大的未知数。
+</div>
+
+<footer>
+  <span>VoiceTranslator · 翻译引擎设置项落地报告 · v0.2.7</span>
+  <span>生成于 2026-09-28</span>
+</footer>
+
+</div>
+</body>
+</html>

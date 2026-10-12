@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>量化档位与 Qwen3.5 端侧实测报告</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:40px 24px;background:#fafaf9;color:#1a1a1a;
+  font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:14px;line-height:1.7;-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:24px;font-weight:500;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:#5f5e5a;font-size:13px;margin:0 0 32px}
+h2{font-size:17px;font-weight:500;margin:40px 0 14px;padding-top:20px;border-top:1px solid #e7e5e4}
+h2:first-of-type{border-top:none;padding-top:0}
+h3{font-size:14px;font-weight:500;margin:22px 0 10px;color:#262626}
+p{margin:0 0 12px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+  background:#f1efee;padding:1px 5px;border-radius:4px}
+table{border-collapse:collapse;width:100%;margin:14px 0 18px;font-size:13.5px}
+th,td{padding:8px 10px;border-bottom:1px solid #eceae8;text-align:left;vertical-align:top}
+th{font-weight:500;color:#5f5e5a;font-size:12.5px;background:#f6f5f4;white-space:nowrap}
+td.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+tr.hl td{background:#eef5fc}
+tr.warn td{background:#fdf2ee}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0 22px}
+.card{background:#fff;border:1px solid #eceae8;border-radius:10px;padding:14px 16px}
+.card .k{font-size:12px;color:#78716c;margin:0 0 4px}
+.card .v{font-size:22px;font-weight:500;margin:0;font-variant-numeric:tabular-nums}
+.card .n{font-size:12px;color:#78716c;margin:4px 0 0}
+.ok{color:#0f6e56}.bad{color:#993c1d}.mid{color:#854f0b}
+.note{background:#fff;border:1px solid #eceae8;border-left:3px solid #185fa5;
+  border-radius:6px;padding:12px 16px;margin:16px 0;font-size:13.5px}
+.note.warnbox{border-left-color:#d85a30}
+.note b{font-weight:500}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+.tag{display:inline-block;font-size:11.5px;padding:1px 7px;border-radius:20px;
+  background:#eef5fc;color:#185fa5;margin-left:6px;vertical-align:1px}
+.tag.g{background:#e8f5ef;color:#0f6e56}
+.tag.r{background:#fdeee9;color:#993c1d}
+footer{margin-top:48px;padding-top:18px;border-top:1px solid #e7e5e4;
+  color:#a8a29e;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>量化档位与 Qwen3.5 端侧实测报告</h1>
+<p class="sub">VoiceTranslator · 2026-09-24 · 全部数据本机实测（A18 Pro，llama.cpp <code>f29f6ca</code>，两套构建：<code>armv8-a</code> 基线与 <code>armv8.2-a+dotprod+fp16</code>，逐项串行）<br>覆盖：Qwen2.5-1.5B 的 7 个量化档 · Qwen2.5-0.5B · Qwen3-1.7B · Qwen3.5-0.8B/2B · 目标机（iPad mini 4 / A8）口径复测</p>
+
+<div class="cards">
+  <div class="card"><p class="k">iPad mini 4（A8）该用哪个</p><p class="v ok">1.5B Q4_K_M</p><p class="n">基线口径四档第一 · 见第八节</p></div>
+  <div class="card"><p class="k">Q4_0 相对现役 Q3_K_M</p><p class="v ok">3.3x / 1.30x</p><p class="n">prefill / 生成（dotprod 口径）</p></div>
+  <div class="card"><p class="k">Qwen3.5-2B 相对 Q4_0 同尺寸</p><p class="v bad">0.63x / 0.39x</p><p class="n">比 Qwen2.5-1.5B 慢</p></div>
+  <div class="card"><p class="k">Qwen3.5-0.8B 绝对速度</p><p class="v ok">234.8 / 55.4</p><p class="n">最快，但质量不可靠</p></div>
+  <div class="card"><p class="k">Qwen3.8 端侧可用性</p><p class="v">不可用</p><p class="n">仅开源 27B</p></div>
+  <div class="card"><p class="k">Qwen3-1.7B 相对现役 1.5B</p><p class="v bad">0.92x / 0.89x</p><p class="n">更慢，且多错一格 · 见第九节</p></div>
+</div>
+
+<h2>一、结论</h2>
+<ol>
+<li><b>Q4_0 确实是速度最快的量化格式，而且是断层第一。</b>同模型同条件实测，prefill 比现役 Q3_K_M 快 <b>3.3 倍</b>、生成快 <b>30%</b>。更小的 Q3_K_S / Q5_0 反而更慢 —— 量化档位和速度不是单调关系。</li>
+<li class="warn"><b>但 Q4_0 不能做默认翻译包 —— 它的粤语会稳定复读崩坏。</b>2026-09-24 的回归实测里，中译粤从「嘅食嚟」一路复读「嚟」到 256 token 上限，两次独立运行结果一致；中译韩混入 <code>free</code> / <code>invitation</code> 英文实词。而现有 <code>script_ok</code> 只校验「无假名 / 无韩文 / 含 CJK」，<b>整串复读垃圾照样通过校验</b>。另外对 A8~A12 的设备，Q4_0 的加速根本拿不到（repack 需 DOTPROD）。<b>结论：Q4_0 可以留作可选包，但不该做默认。</b>详见第六节。</li>
+<li class="warn"><b>去掉粤语也救不了 Q4_0 —— 它的中译韩会混入英文实词。</b>官方 Q4_0 与「从 F16 重新量化的 Q4_0」在同一句上<b>逐字相同</b>（<code>free</code> / <code>invitation</code>），说明这是 Q4_0 格式在 4.77 bpw 下的固有限制，换来源救不了。<b>要速度首选 Q4_0；要「速度 + 缺陷最轻」选 IQ4_NL。</b>详见第七节。<br><b>但这两条都有前提 —— 设备必须支持 dotprod。</b>目标机 iPad mini 4 没有，第八节会给出不一样的答案。</li>
+<li><b>Qwen3.5 同规模不会更快，慢一倍多。</b>同为 Q4_0 格式，Qwen3.5-2B 的生成只有 Qwen2.5-1.5B 的 <b>39%</b>（参数只多 5.6%）。它的质量其实不输（中译粤甚至更好），所以这是「拿一倍的延迟换一个不必要的质量提升」，方向反了。</li>
+<li><b>Qwen3.8 与端侧无关。</b>它是 2.4T 参数旗舰，只开源 27B，没有 1.5B 级小尺寸。</li>
+<li><b>「更小的模型」确实更快，但 Qwen3.5-0.8B 质量不可靠。</b>它绝对速度第一（prefill 5.0x / 生成 1.8x），但英译中单句就凭空多出「十点半前」这类原文没有的内容，不建议上生产。</li>
+<li class="hl"><b>目标机 iPad mini 4（A8）的答案不一样：Qwen2.5-1.5B + <code>Q4_K_M</code>。</b>在 <code>armv8-a</code> 基线口径（2 线程）下，四档 1.5B 挤在 <b>1.2 倍</b>以内，而且最慢变成最快反过来 —— <b>Q4_K_M 第一</b>（比 Q4_0 快 8% / 5%），因为 Q4_0 的加速依赖 A8 根本没有的 dotprod。换 0.5B 虽然快 <b>2.7 倍</b>，但 5 个用例只对 1 个、且都是语义级错误。<b>详见第八节。</b><br><b>已按此把两端内置翻译包换成 Q4_K_M（2026-09-24），并构建验证通过。</b></li>
+<li><b>「换新一代」不等于更快：Qwen3-1.7B 更慢、也更差。</b>它比现役只多 12% 参数、体积几乎持平，但在目标机口径下慢 <b>8~11%</b>，5 个用例比现役<b>多错一格</b>（中→日把「洗手间」写成中文汉字「洗手間」），中→韩错得更重（Q4_0 甚至整句输出中文）。<b>1.5B 换 1.7B 是负收益，详见第九节。</b></li>
+</ol>
+
+<h2>二、Q4_0 是不是最快 —— 量化档位速度矩阵</h2>
+<p>同一个 Qwen2.5-1.5B（1.78B 参数）从 Q4_K_M 源量化出各档，唯一变量是格式。<code>-p512 -n128</code>，4 线程，逐项串行。<b>本组用 <code>llama-bench</code> 测量，不经过 prompt 通道，因此不受下节那个方法学问题影响。</b></p>
+
+<table>
+<thead><tr><th>格式</th><th>体积</th><th style="text-align:right">prefill t/s</th><th style="text-align:right">生成 t/s</th><th>相对 Q4_0</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>Q4_0</b></td><td>1011 MiB</td><td class="num"><b>162.36</b></td><td class="num"><b>35.79</b></td><td>1.00x / 1.00x</td></tr>
+<tr><td>IQ4_NL <span class="tag">4.5 bpw</span></td><td>1017 MiB</td><td class="num">131.64</td><td class="num">33.51</td><td>0.81x / 0.94x</td></tr>
+<tr><td>Q4_K_M</td><td>1.04 GiB</td><td class="num">114.33</td><td class="num">28.35</td><td>0.70x / 0.79x</td></tr>
+<tr class="warn"><td>Q3_K_M <span class="tag r">现役</span></td><td>876 MiB</td><td class="num">49.85</td><td class="num">26.81</td><td>0.31x / 0.75x</td></tr>
+<tr><td>Q4_1</td><td>1.08 GiB</td><td class="num">45.25</td><td class="num">26.80</td><td>0.28x / 0.75x</td></tr>
+<tr><td>Q3_K_S</td><td>816 MiB</td><td class="num">35.62</td><td class="num">24.02</td><td>0.22x / 0.67x</td></tr>
+<tr><td>Q5_0</td><td>1.17 GiB</td><td class="num">33.83</td><td class="num">21.35</td><td>0.21x / 0.60x</td></tr>
+</tbody>
+</table>
+
+<h3>为什么 Q4_1 比 Q4_0 慢 3.6 倍</h3>
+<p>看着反直觉，但根因清楚：<b>ARM 上只有 Q4_0 / Q8_0 有 repack 快速路径</b>。ARM 侧的 repack 实现整体被这个条件包住（<code>ggml/src/ggml-cpu/arch/arm/repack.cpp:26</code>）：</p>
+<p><code>#if defined(__aarch64__) &amp;&amp; defined(__ARM_NEON) &amp;&amp; (defined(__ARM_FEATURE_MATMUL_INT8) || defined(__ARM_FEATURE_DOTPROD))</code></p>
+<p>Q4_1 / Q5_0 不在这条路径里，只能走通用 C 路径，于是「更小的量化」没有换来计算优势。K-quant 有自己的一套 repack（<code>decode_q_Kx8_6bit_scales</code>），这解释了 Q4_K_M 的 prefill（114）为何远高于 Q3_K_M（50）—— 但仍然追不上 Q4_0。</p>
+
+<div class="note">
+<b>顺带确认：</b><code>GGML_CPU_REPACK</code> 默认是 <code>ON</code>（<code>ggml/CMakeLists.txt:152</code>），且 baseline 构建下它被整体编掉（因为没有 DOTPROD）。这解释了「baseline 下 Q4_0 与 Q3_K_M 打平、开了 dotprod 才拉开差距」—— <b>Q4_0 的加速和 dotprod 是绑定的，两项必须一起做</b>。
+</div>
+
+<h3>IQ4_NL 是值得注意的第二名</h3>
+<p>体积与 Q4_0 完全相同（1017 vs 1011 MiB），速度 0.81x / 0.94x，而 4.5 bpw 的非线性量化质量通常明显优于 Q4_0。<b>要速度与质量兼顾，IQ4_NL 比 Q4_0 更稳。</b></p>
+
+<h2>三、Qwen3.5 会更快吗 —— 实测答案是不会</h2>
+
+<h3>3.1 架构差异</h3>
+<p>Qwen3.5 的小尺寸实际只有 <b>0.8B / 2B / 4B / 9B</b>（没有 1.5B）。以 2B 为例，<code>config.json</code> 显示：</p>
+<ul>
+<li><b>混合注意力</b>：24 层里 <b>18 层是 Gated DeltaNet 线性注意力</b>，只有 6 层是全注意力（<code>full_attention_interval: 4</code>）</li>
+<li>词表 <b>248320</b>（现役 Qwen2.5 是 151936，<b>+63%</b>），且 <code>tie_word_embeddings: true</code></li>
+<li>GGUF 的 <code>general.architecture = qwen35</code>，本仓库的 llama.cpp 已支持（<code>LLM_ARCH_QWEN35</code>）</li>
+<li>天生多模态，但视觉塔在独立的 <code>mmproj-*.gguf</code> 里，文本权重不含视觉张量</li>
+</ul>
+
+<h3>3.2 速度：同 Q4_0 格式的公平对照</h3>
+<p>生产真实 prompt（约 165 token 输入 / 18 token 输出），4 线程，全部走下面第四节说的干净通道。</p>
+<table>
+<thead><tr><th>模型</th><th style="text-align:right">prefill t/s</th><th style="text-align:right">生成 t/s</th><th>pp160 (t4)</th><th>tg20 (t1 / t2 / t4)</th></tr></thead>
+<tbody>
+<tr class="hl"><td>Qwen2.5-1.5B Q4_0</td><td class="num"><b>150.8</b></td><td class="num"><b>34.9</b></td><td class="num">165.58</td><td>28.39 / 37.75 / 40.44</td></tr>
+<tr><td>Qwen3.5-2B Q4_0</td><td class="num">94.6</td><td class="num bad">13.7</td><td class="num">123.83</td><td>17.17 / 21.37 / 23.41</td></tr>
+<tr><td>比值</td><td class="num">0.63x</td><td class="num bad">0.39x</td><td class="num">0.75x</td><td>0.60x / 0.57x / 0.58x</td></tr>
+</tbody>
+</table>
+<p>参数只多 5.6%（1.88B vs 1.78B），生成却慢到 39%。线程伸缩比两者接近（1.42x vs 1.36x），说明<b>不是并行度问题，是 GDN 层本身在 CPU 上的单步效率就低</b>。GDN 的长处是长序列下 KV cache 恒定，而本项目场景是「165 token 输入 / 18 token 输出」—— 这项优势完全用不上。</p>
+
+<div class="note warnbox">
+<b>方法学修正（重要）：</b>本轮一度依据 <code>tg128</code> 得出「Qwen3.5 加线程无收益」，被 <code>tg20</code> 三次重复推翻（21.37 → 23.41，正常增长）。短序列 bench 方差大，下结论前要看 <b>t=1 基准 + 多次重复</b>。
+</div>
+
+<h3>3.3 质量：不输，但也没必要</h3>
+<p>同 prompt、greedy、干净通道：</p>
+<table>
+<thead><tr><th>用例</th><th>Qwen2.5-1.5B Q3_K_M（现役）</th><th>Qwen3.5-2B Q4_0</th></tr></thead>
+<tbody>
+<tr><td>英→中</td><td>去上海的火车明天早上八点半出发，但我还需要买票。 <span class="tag g">正确</span></td><td>明天早上八点半的火车去上海，但我仍然需要买票。 <span class="tag g">正确</span></td></tr>
+<tr><td>英→中②</td><td>我在这里已经等了一个多小时，但没有人告诉我会议取消了。 <span class="tag g">正确</span></td><td>我在这里等了一个多小时，却没人告诉我会议取消了。 <span class="tag g">正确</span></td></tr>
+<tr><td>中→粤</td><td>你食咗嘢嚟？明嘅我喺香港嘅嘢去出差。 <span class="tag r">崩坏</span></td><td>你食咗饭吗？明天我要去香港出差。 <span class="tag g">全场最好</span></td></tr>
+<tr><td>中→日</td><td>トイレはどこですか？ <span class="tag g">正确</span></td><td>トイレはどこですか？ <span class="tag g">正确</span></td></tr>
+</tbody>
+</table>
+<p><b>所以问题不在质量，在速度。</b>Qwen3.5-2B 的中译粤反而明显最好 —— 它保住了「食咗」，而现役模型输出「明嘅我喺香港嘅嘢去出差」整句崩坏。中译日两者都正确。<b>用它是在拿一倍的延迟，换一个「可用但不必要」的质量提升。</b></p>
+
+<div class="note warnbox">
+<b>⚠️ 一条必须撤回的中间结论。</b>本报告早期版本曾记录「Qwen3.5-2B 中译日幻觉出 <code>おしんちん</code>」。复现后确认那是<b>测量方法的问题，不是模型的问题</b>：gguf 自带 chat template 时，llama.cpp <b>默认 auto-enable 会话模式</b>，喂进去的完整 prompt 会被当成 user message <b>再套一次模板</b>，输入结构被污染。加上 <code>-no-cnv</code> 走干净通道后该幻觉消失，所有模型的中译日都正确。<b>遇到「目标语言里混进源语言字符」或「莫名多出思考过程」，应先怀疑 prompt 通道，再怪模型。</b>
+</div>
+
+<h2>四、更小的模型确实更快，但 0.8B 质量不可靠</h2>
+<p>既然 Qwen3.5 同尺寸更慢，那换更小尺寸呢？实测 Qwen3.5-0.8B（仍为 Q4_0）：</p>
+
+<table>
+<thead><tr><th>模型</th><th style="text-align:right">prefill t/s</th><th style="text-align:right">生成 t/s</th><th>相对现役</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>Qwen3.5-0.8B Q4_0</b></td><td class="num"><b>234.8</b></td><td class="num"><b>55.4</b></td><td>5.0x / 1.8x</td></tr>
+<tr><td>Qwen2.5-1.5B Q4_0</td><td class="num">150.8</td><td class="num">34.9</td><td>3.2x / 1.12x</td></tr>
+<tr><td>Qwen2.5-1.5B Q4_K_M</td><td class="num">104.1</td><td class="num">30.1</td><td>2.2x / 0.96x</td></tr>
+<tr><td>Qwen3.5-2B Q4_0</td><td class="num">94.6</td><td class="num">13.7</td><td>2.0x / 0.44x</td></tr>
+<tr class="warn"><td>Qwen2.5-1.5B Q3_K_M <span class="tag r">现役</span></td><td class="num">46.6</td><td class="num">31.2</td><td>1.00x / 1.00x</td></tr>
+</tbody>
+</table>
+
+<p>0.8B 是全场速度冠军。这说明 Qwen3.5 的慢属于「同尺寸效率差」，而不是「架构不能用」—— 参数砍到 0.8B，绝对速度仍然第一。</p>
+
+<p>但质量上要付代价：</p>
+<table>
+<thead><tr><th>用例</th><th>现役 Q3_K_M</th><th>Qwen3.5-0.8B Q4_0</th></tr></thead>
+<tbody>
+<tr class="warn"><td>英→中</td><td>去上海的火车明天早上八点半出发，但我还需要买票。 <span class="tag g">正确</span></td><td>明天早上八点，<b>十点半前</b>，我还需要买票。 <span class="tag r">凭空幻觉</span></td></tr>
+<tr><td>英→中②</td><td>我在这里已经等了一个多小时，但没有人告诉我会议取消了。 <span class="tag g">正确</span></td><td>我已经等待了超过一个小时，没有人告诉我会议被取消了。 <span class="tag g">正确</span></td></tr>
+<tr><td>中→粤</td><td>你食咗嘢嚟？明嘅我喺香港嘅嘢去出差。 <span class="tag r">崩坏</span></td><td>我食过啦，明天我嘅话，我哋去香港出差。 <span class="tag r">崩坏</span></td></tr>
+<tr><td>中→日</td><td>トイレはどこですか？ <span class="tag g">正确</span></td><td>トイレはどこですか？ <span class="tag g">正确</span></td></tr>
+</tbody>
+</table>
+
+<div class="note warnbox">
+<b>这里有一个校验漏洞值得单独处理：</b>0.8B 在英译中里凭空多出了「十点半前」这个原文根本没有的时间 —— 而 <code>script_ok("Chinese")</code> 只校验「是中文、无假名、无韩文」，<b>语义幻觉完全拦不住</b>，会直接输出给用户。粤语同理：「明嘅我喺香港嘅嘢去出差」这种崩坏句全是汉字，照样通过校验。<b>换量化、换模型都治不了这个，它只能靠更严的输出校验或人工抽查兜底。</b>
+</div>
+
+<h2>五、选型建议</h2>
+<table>
+<thead><tr><th>目标</th><th>方案</th><th>收益</th><th>代价</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>推荐：做默认内置</b></td><td>维持 <b>Qwen2.5-1.5B Q3_K_M</b>（现役）</td><td>五语都不断档，是三档里体积最小的</td><td>prefill 只有 Q4_0 的 30%</td></tr>
+<tr><td>提速且保质量</td><td>换 <b>Q4_K_M</b></td><td>prefill 2.3x，生成与 Q3_K_M 相当，<b>三档里粤语最好</b></td><td>包体积 876 → 1017 MiB（+16%）</td></tr>
+<tr><td>质量优先的折中</td><td>换 <b>IQ4_NL</b></td><td>prefill 2.6x / 生成 1.03x，4.5 bpw 非线性量化质量通常优于 Q4_0</td><td>生成几乎无提升</td></tr>
+<tr class="warn"><td><b>不建议做默认</b></td><td>换 <b>Q4_0</b></td><td>速度断层第一（prefill 3.3x / 生成 1.30x）</td><td><b>粤语稳定复读崩坏、韩语混入英文</b>（见第六节）；<b>A8~A12 上根本没有加速</b>（repack 需 DOTPROD），纯亏 135 MiB</td></tr>
+<tr class="warn"><td>不建议</td><td>Qwen3.5-2B / 0.8B ｜ Qwen3.8</td><td>—</td><td>2B 生成只有现役的 44%；0.8B 英译中凭空幻觉；3.8 无端侧小尺寸</td></tr>
+</tbody>
+</table>
+
+<p>如果目标是「更快」，性价比最高的一步仍是上一轮已验证的组合：<b>开 dotprod + 换 Q4_0 + 生成线程 2→4</b>，三项叠加能把生成提到约 2.4 倍、prefill 提到约 7.6 倍。但注意两件事：<b>①「质量不降」这个说法已被第六节的实测推翻</b>；<b>②这项收益只属于 A13 及以上的设备</b>（repack 快速路径被 <code>__ARM_FEATURE_DOTPROD</code> 包住），本项目的目标机 iPad mini 4（A8）完全不适用。</p>
+
+<h2>六、Q4_0 的质量回归 —— 粤语会稳定复读崩坏</h2>
+
+<p>上一节最初把 Q4_0 列为「速度 + 质量兼顾」，那是<b>只看速度矩阵</b>得出的结论。把译文真正跑出来之后，结论必须改。以下是 2026-09-24 把 Q4_0 打成 <code>.vtmodel</code> 并设为两端内置包时的回归实测（生产 prompt，greedy，4 线程）：</p>
+
+<table>
+<thead><tr><th>用例</th><th>Q4_0（拟做默认）</th><th>Q3_K_M（现役）</th><th>Q4_K_M</th></tr></thead>
+<tbody>
+<tr class="warn"><td>中→粤<br><span style="color:#78716c">你吃饭了吗？明天我要去香港出差。</span></td><td>嘅食嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟嚟<br><b>复读 128 个「嚟」，一路填到 256 token 上限</b> <span class="tag r">崩坏</span></td><td>你食咗嘢嚟？明嘅我喺香港嘅嘢去出差。 <span class="tag r">崩坏</span></td><td>你食咗咩嘢？明月要去香港出差。 <span class="tag r">崩坏</span></td></tr>
+<tr class="warn"><td>中→韩<br><span style="color:#78716c">这个周末你有空吗？我想请你吃饭。</span></td><td>이週末 당신가 <b>free</b>인가요? 저는 당신을 식사 <b>invitation</b>해달라고 해요.<br><b>混入英文实词，语法崩坏</b> <span class="tag r">劣化</span></td><td>이週末 여유가 있나요? 저에게 저녁을请你드려주시면 좋겠습니다。 <span class="tag r">混入中文</span></td><td>이周末あなたは空いているでしょうか？私はあなたを食事に誘いたいです。 <span class="tag r">混入中日文</span></td></tr>
+<tr><td>英→中<br><span style="color:#78716c">The train to Shanghai leaves at eight thirty…</span></td><td>明天早上八点半有一趟去上海的火车，但我还需要买票。 <span class="tag g">正确</span></td><td>去上海的火车明天早上八点半出发，但我还需要买票。 <span class="tag g">正确</span></td><td>去上海的火车明天早上八点半发车，但我还需要买票。 <span class="tag g">正确</span></td></tr>
+<tr><td>日→中<br><span style="color:#78716c">すみません、駅までの道を…</span></td><td>不好意思，能告诉我从车站到哪里的路吗？ <span class="tag g">正确</span></td><td>不好意思，请问可以告诉我到车站的路吗？ <span class="tag g">正确</span></td><td>不好意思，能告诉我从车站到哪里的路吗？ <span class="tag g">正确</span></td></tr>
+</tbody>
+</table>
+
+<p>同一批次的实测速度（本机 A18 Pro，<code>armv8.2-a+dotprod+fp16</code>，4 线程）：</p>
+<table>
+<thead><tr><th>格式</th><th style="text-align:right">prefill t/s（区间）</th><th style="text-align:right">生成 t/s（区间）</th></tr></thead>
+<tbody>
+<tr class="hl"><td>Q4_0</td><td class="num"><b>127 ~ 174</b></td><td class="num"><b>27.6 ~ 39.6</b></td></tr>
+<tr><td>Q4_K_M</td><td class="num">93 ~ 122</td><td class="num">28.8 ~ 37.3</td></tr>
+<tr><td>Q3_K_M（现役）</td><td class="num">42 ~ 50</td><td class="num">27.1 ~ 30.6</td></tr>
+</tbody>
+</table>
+
+<div class="note warnbox">
+<b>三点必须一起看：</b>
+<ol>
+<li><b>复读是可复现的，不是偶发。</b>同一用例独立跑两次，都从「嘅食嚟」开始一路复读「嚟」到 256 token 上限。生产里也是 greedy 采样，等于每次都会踩。</li>
+<li><b>现有校验拦不住。</b>复读出来的全是汉字，<code>script_ok("Cantonese")</code> 只校验「无假名 / 无韩文 / 含 CJK」，<b>整串垃圾照样通过</b>，用户会等十几秒然后拿到一屏「嚟嚟嚟」。</li>
+<li><b>对 iPad mini 4 而言这次换包是纯亏。</b>Q4_0 的加速来自 ARM 的 repack 快速路径，而那条路径被 <code>__ARM_FEATURE_DOTPROD</code> 整体包住 —— A8 没有 DOTPROD，<b>baseline 下 Q4_0 与 Q3_K_M 速度打平</b>（第二轮已实测）。于是换到目标机上只剩两个后果：质量变差、包大 135 MiB。</li>
+</ol>
+</div>
+
+<p>客观地说，<b>三档的粤语都不合格</b>（Q3_K_M「明嘅」、Q4_K_M「明月」也都是错译）。但「复读填满输出」和「译错一个词」是两个量级：前者会让一次翻译彻底不可用，而且长度是后者的十几倍、更慢。粤语这一路真正需要的是 <b>prompt 侧的输出校验</b>（n-gram 重复检测 / 目标语言字符集校验），不是换量化。</p>
+
+<h2>七、去掉粤语之后 —— IQ4_NL 与「从 F16 重新量化的 Q4_0」</h2>
+
+<p>第六节的结论是「Q4_0 不能做默认」，但粤语占了理由的一大半。那么<b>把粤语从评估里整个去掉</b>，Q4_0 是不是就能用了？这一节专门回答这个问题，同时把 <b>IQ4_NL</b> 拉进来同场对比。</p>
+
+<div class="note">
+<b>方法学修正（这次做对的地方）：</b>报告第二节那个速度矩阵里的 IQ4_NL 是<b>从 Q4_K_M 二次量化</b>出来的，只适合比速度，<b>不能用来判断质量</b>（<code>bench-llama-arm.py</code> 的 docstring 里已经记了这个教训：二次量化的 Q4_0 曾把「to Shanghai」译成「从 Shanghai」）。<br>
+这次发现官方 GGUF 仓库里有 <code>qwen2.5-1.5b-instruct-fp16.gguf</code>，于是<b>下 F16 原始权重重新量化</b>（<code>llama-quantize</code>，不带 <code>--allow-requantize</code>），IQ4_NL 和对照用的 Q4_0 都是这么来的。
+</div>
+
+<h3>7.1 关键对照：官方 Q4_0 vs 从 F16 重新量化的 Q4_0</h3>
+
+<p>这两份是**同格式、不同来源**：一份是官方发布的 <code>qwen2.5-1.5b-instruct-q4_0.gguf</code>，一份是本次从 F16 自己量的（1011 MiB，4.77 BPW）。在出问题的那一格上，它们给出了<b>逐字相同</b>的输出：</p>
+
+<table>
+<thead><tr><th>来源</th><th>中→韩译文</th></tr></thead>
+<tbody>
+<tr class="warn"><td>官方 Q4_0</td><td>이週末 당신가 <b>free</b>인가요? 저는 당신을 식사 <b>invitation</b>해달라고 해요.</td></tr>
+<tr class="warn"><td>从 F16 重新量化的 Q4_0</td><td>이週末 당신가 <b>free</b>인가요? 저는 당신을 식사 <b>invitation</b>해달라고 해요.</td></tr>
+</tbody>
+</table>
+
+<p><b>结论很硬：这不是「官方量化做得不好」，是 Q4_0 在 4.77 BPW 下自身的表达边界。</b>换更"正规"的来源救不了 —— 想避开就只能换格式，不能换来源。</p>
+
+<h3>7.2 五档译文（评估口径：去掉粤语）</h3>
+
+<p>生产 prompt、greedy、4 线程。<span class="tag g">正确</span> = 语义完整且未混入源语言字符。</p>
+
+<table>
+<thead><tr><th>用例</th><th>Q4_0 官方</th><th>Q4_0 从 F16</th><th>IQ4_NL</th><th>Q4_K_M</th><th>Q3_K_M 现役</th></tr></thead>
+<tbody>
+<tr><td>英→中 ①<br><span style="color:#78716c">The train to Shanghai…</span></td><td>明天早上八点半有一趟去上海的火车，但我还需要买票。 <span class="tag g">正确</span></td><td>同左 <span class="tag g">正确</span></td><td>明天早上八点半去上海的火车，但我还需要买票。 <span class="tag r">缺谓语</span></td><td>去上海的火车明天早上八点半发车，但我还需要买票。 <span class="tag g">正确</span></td><td>去上海的火车明天早上八点半出发，但我还需要买票。 <span class="tag g">正确</span></td></tr>
+<tr><td>英→中 ②<br><span style="color:#78716c">I have been waiting here…</span></td><td>我在这里已经等了一个多小时，但没有人告诉我会议被取消了。 <span class="tag g">正确</span></td><td>同左 <span class="tag g">正确</span></td><td>我已经在这里等了一个多小时，但没有人告诉我会议取消了。 <span class="tag g">正确</span></td><td>我已经在这里等了一个多小时，但没有人告诉我会议取消了。 <span class="tag g">正确</span></td><td>我在这里已经等了一个多小时，但没有人告诉我会议取消了。 <span class="tag g">正确</span></td></tr>
+<tr><td>中→日<br><span style="color:#78716c">请问洗手间在哪里？</span></td><td>トイレはどこですか？ <span class="tag g">正确</span></td><td>同左 <span class="tag g">正确</span></td><td>トイレはどこですか？ <span class="tag g">正确</span></td><td>トイレはどこですか？ <span class="tag g">正确</span></td><td>トイレはどこですか？ <span class="tag g">正确</span></td></tr>
+<tr class="warn"><td><b>中→韩</b><br><span style="color:#78716c">这个周末你有空吗？我想请你吃饭。</span></td><td>이週末 당신가 <b>free</b>인가요? 저는 당신을 식사 <b>invitation</b>해달라고 해요. <span class="tag r">混英文实词</span></td><td>与官方<b>逐字相同</b> <span class="tag r">混英文实词</span></td><td>이週末 당신<b>は</b>空いているでしょうか？私はあなたに食事を<b>请你</b>します。 <span class="tag r">混日文助词+中文</span></td><td>이<b>周末あなたは</b>空いているでしょうか？私はあなたを食事に誘いたいです。 <span class="tag r">混中文+日文</span></td><td>이週末 여유가 있나요? 저에게 저녁을<b>请你</b>드려주시면 좋겠습니다。 <span class="tag r">混中文</span></td></tr>
+<tr><td>日→中<br><span style="color:#78716c">すみません、駅までの道を…</span></td><td>不好意思，能告诉我从车站到哪里的路吗？ <span class="tag g">正确</span></td><td>同左 <span class="tag g">正确</span></td><td>请问可以告诉我去车站的路吗？ <span class="tag g">正确</span></td><td>不好意思，能告诉我从车站到哪里的路吗？ <span class="tag g">正确</span></td><td>不好意思，请问可以告诉我到车站的路吗？ <span class="tag g">正确</span></td></tr>
+</tbody>
+</table>
+
+<div class="note warnbox">
+<b>去掉粤语之后，还剩下一个躲不掉的坑：中译韩。</b>
+<ol>
+<li><b>五档没有一个合格</b>：全都混入了源语言字符。所以这不是「换个量化就好」的问题，<b>是 1.5B 这个尺寸的能力边界</b>。</li>
+<li><b>Q4_0 的形态最差</b>：它混进来的是 <code>free</code> / <code>invitation</code> 这种<b>英文实词</b>，语义直接变了；其余三档混的是汉字/假名（「请你」「周末」「あなたは」），属于"读得出来但不对"。</li>
+<li><b>换成更小的模型也解决不了</b>：Qwen3.5-0.8B 的幻觉出现在<b>英译中</b>（凭空多出「十点半前」），与粤语无关，去掉粤语它照样不合格。</li>
+</ol>
+</div>
+
+<h3>7.3 速度：两种测法给出同一个排序</h3>
+
+<table>
+<thead><tr><th>格式</th><th>体积</th><th style="text-align:right">llama-bench<br>prefill / 生成</th><th style="text-align:right">生产 prompt 实测<br>prefill 区间 / 生成区间</th><th>相对 Q4_0</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>Q4_0</b></td><td>1011 ~ 1017 MiB</td><td class="num"><b>162.36 / 35.79</b></td><td class="num"><b>135.4 ~ 174.6 / 32.1 ~ 44.6</b></td><td>1.00x / 1.00x</td></tr>
+<tr><td>IQ4_NL <span class="tag">4.5 bpw</span></td><td>1017 MiB</td><td class="num">131.64 / 33.51</td><td class="num">93.2 ~ 135.4 / 24.4 ~ 40.5</td><td>0.81x / 0.94x</td></tr>
+<tr><td>Q4_K_M</td><td>1.04 GiB</td><td class="num">114.33 / 28.35</td><td class="num">114.6 ~ 122.2 / 25.8 ~ 38.0</td><td>0.70x / 0.79x</td></tr>
+<tr class="warn"><td>Q3_K_M <span class="tag r">现役</span></td><td>876 MiB</td><td class="num">49.85 / 26.81</td><td class="num">45.4 ~ 48.3 / 27.4 ~ 30.9</td><td>0.31x / 0.75x</td></tr>
+</tbody>
+</table>
+
+<p>排序在两种方法下完全一致：<b>Q4_0 &gt; IQ4_NL &gt; Q4_K_M &gt; Q3_K_M</b>。IQ4_NL 是稳的第二名 —— prefill 比现役高 <b>2.6 倍</b>、生成高 <b>25%</b>，而体积与 Q4_0 几乎相同。</p>
+
+<h3>7.4 所以，去掉粤语后谁最快</h3>
+
+<table>
+<thead><tr><th>前提</th><th>答案</th><th>说明</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>只看速度，能接受中译韩不干净</b></td><td><b>Q4_0</b></td><td>断层第一，但中译韩会吐 <code>free</code> / <code>invitation</code></td></tr>
+<tr><td>速度 + 韩语缺陷最轻</td><td><b>IQ4_NL</b></td><td>prefill 2.6x / 生成 1.25x，混入的是汉字而非英文实词</td></tr>
+<tr><td>中译韩也要干净</td><td><b>1.5B 没有合格档位</b></td><td>五档全混源语言字符，得上更大模型（3B+，速度代价很大）</td></tr>
+<tr class="warn"><td><b>目标机是 iPad mini 4（A8）</b></td><td><b>四个格式几乎打平，而且冠军换人 —— Q4_K_M</b></td><td>基线口径完整重测见第八节</td></tr>
+</tbody>
+</table>
+
+<div class="note warnbox">
+<b>最后这条必须再强调一次：以上全部是 A18 Pro（有 dotprod）的数字。</b>
+Q4_0 / IQ4_NL 的快速路径都建立在 <code>__ARM_FEATURE_DOTPROD</code> 之上 —— A8～A12 上这些 kernel 根本不参与编译。所以在 iPad mini 4 上「换量化档位」的收益 <b>远小于</b>这里的数字：四档挤在 1.2 倍内，而且第一名换成 <b>Q4_K_M</b>。本节这些数字对 <b>iPhone 11（A13）及以后</b>的设备才有意义。
+</div>
+
+<h2>八、iPad mini 4 该用哪个模型 —— 按目标机口径重测</h2>
+<p>前面七节的矩阵都跑在 A18 Pro 上，而项目真正发布出去的是 <b><code>armv8-a</code> 基线指令集</b>（两端原生库的 <code>GGML_CPU_ARM_ARCH</code>）。目标机 iPad mini 4 是 <b>A8</b> —— 既没有 dotprod 也没有 fp16。所以这一节把指令集和线程数换成目标机的口径（<code>armv8-a</code> / 2 线程）重测。<b>判据不是「哪个格式理论上最快」，而是「在这台机器上哪个最快」。</b></p>
+
+<h3>8.1 两套指令集 × 五个模型</h3>
+<p><code>llama-bench -p512 -n128</code>，2 线程（A8 只有两个核），逐项串行。</p>
+
+<table>
+<thead><tr><th>模型</th><th>体积</th><th style="text-align:right">基线 pp / tg</th><th style="text-align:right">dotprod pp / tg</th><th style="text-align:right">dotprod 提速</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b>1.5B Q4_K_M</b></td><td>1.04 GiB</td><td class="num"><b>25.4 / 16.8</b></td><td class="num">76.8 / 29.2</td><td>3.03x / 1.74x</td></tr>
+<tr><td>1.5B Q4_0</td><td>1011 MiB</td><td class="num">23.4 / 16.0</td><td class="num">111.8 / 33.8</td><td><b>4.78x</b> / <b>2.11x</b></td></tr>
+<tr><td>1.5B IQ4_NL</td><td>0.99 GiB</td><td class="num">21.5 / 15.1</td><td class="num">84.6 / 29.0</td><td>3.93x / 1.92x</td></tr>
+<tr class="warn"><td>1.5B Q3_K_M</td><td>876 MiB</td><td class="num">21.0 / 15.1</td><td class="num">31.6 / 21.0</td><td>1.50x / 1.39x</td></tr>
+<tr><td>0.5B Q4_K_M</td><td>0.45 GiB</td><td class="num"><b>68.7 / 44.9</b></td><td class="num">99.5 / 57.9</td><td>1.45x / 1.29x</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<b>排序反了。</b>在目标机那套指令集下，<b>Q4_K_M 是四档 1.5B 里最快的</b>（比 Q4_0 快 8% / 5%），Q4_0 只在有 dotprod 的设备上才是冠军。把顺序反过来复核（Q4_K_M 排在前、<code>-r 3</code>）结论不变：<b>25.78 / 16.69 vs 23.21 / 15.55</b>。
+<br><br>根因还是第二节那条：<b>Q4_0 的 repack 快速路径整块被 <code>__ARM_FEATURE_DOTPROD</code> 包住</b>，A8 上没有它；K-quant 的 repack 不依赖 dotprod。看最后一列 —— Q4_0 能从 dotprod 里多拿 4.78x，Q4_K_M 只有 3.03x，<b>谁更依赖那条基线不可用的路径，一目了然</b>。
+<br><br>顺带修正 7.4 的一句旧结论。当时写「A8 上换量化档位收益为 0」，准确的说法是<b>「收益很小但不是 0」</b>—— 四档挤在 1.2 倍内，而 Q4_K_M 相对现役 Q3_K_M 仍有 1.23x / 1.11x。
+</div>
+
+<h3>8.2 换小模型才是真杠杆 —— 但 0.5B 质量不合格</h3>
+<p>速度上这是唯一的大杠杆：<b>0.5B 的体积是 1.5B 的 43%，prefill 与生成各快 2.7 倍</b>。用同一套生产 prompt、greedy、不含粤语的 5 个用例比译文：</p>
+
+<table>
+<thead><tr><th>用例</th><th>1.5B Q4_K_M（对 4/5）</th><th>0.5B Q4_K_M（对 1/5）</th></tr></thead>
+<tbody>
+<tr><td>英→中①<br><span style="color:#78716c">去上海的火车</span></td><td class="ok">明天早上八点半<b>有一班去上海</b>的火车，但我还需要买票。</td><td class="bad">明天早上八点半<b>从上海开往</b>的火车……<br><span style="color:#78716c">方向反了</span></td></tr>
+<tr><td>英→中②<br><span style="color:#78716c">over an hour</span></td><td class="ok">我已经在这里等了一个多小时……</td><td class="bad">我在这里等了<b>近</b>一个小时……<br><span style="color:#78716c">把「一个多小时」译成「近一个小时」</span></td></tr>
+<tr><td>中→日</td><td class="ok">トイレはどこですか？</td><td class="ok">トイレはどこですか？</td></tr>
+<tr><td>中→韩</td><td class="bad">이週末 여유가 있나요? 저에게 식사를<b>请你</b>すること 생각해요.<br><span style="color:#78716c">混入中文「请你」</span></td><td class="bad">이번 <b>주요요일</b>에 어떤 시간에 도와드릴까요? …<br><span style="color:#78716c">语义整体丢失</span></td></tr>
+<tr><td>日→中<br><span style="color:#78716c">駅までの道</span></td><td class="ok">不好意思，能告诉我去车站的路吗？</td><td class="bad">请问<b>从站到路的路</b>怎么走？</td></tr>
+</tbody>
+</table>
+
+<p><b>0.5B 的 4 处错误里有 3 处是语义级错误</b>（方向反、程度反、整句崩），不是措辞问题；现有 <code>script_ok</code> 校验一条都拦不住。它换来 2.7 倍速度，代价是译文不可用 —— <b>不能上生产</b>。</p>
+
+<h3>8.3 顺带否掉一个「省时间」的设想：裁 few-shot 只省 28%</h3>
+<p>既然 prefill 是这台老机上的大头，自然会想「把提示词里的 few-shot 从 3 组裁到 1 组」。先量长度（同一句源文）：</p>
+<table>
+<thead><tr><th>few-shot 组数</th><th style="text-align:right">prompt 长度</th><th style="text-align:right">相对 3 组</th></tr></thead>
+<tbody>
+<tr><td>3 组（<code>translator.cpp</code> 现状）</td><td class="num">560 字符</td><td class="num">1.00x</td></tr>
+<tr><td>2 组</td><td class="num">477 字符</td><td class="num">0.85x</td></tr>
+<tr><td>1 组</td><td class="num">403 字符</td><td class="num">0.72x</td></tr>
+</tbody>
+</table>
+<p>只省 <b>28%</b> —— 因为贵的是那段<b>固定不变的 system 指令</b>（含语言规则，约 330 字符，占六成），few-shot 例句本身一组只有 77 字符。<b>用 28% 的速度去赌译文质量不划算</b>；也就是说「第一句特别慢」在这台机器上基本是结构性的，裁例文解决不了。<br>
+<span style="color:#78716c">（脚本已加 <code>--shots 1..3</code> 开关，真要做这个实验可以直接跑。本轮只量了长度、没做质量对照，所以不对「裁到 1 组是否掉质量」下结论。）</span></p>
+
+<h3>8.4 所以 iPad mini 4 上用什么</h3>
+<table>
+<thead><tr><th>决策点</th><th>结论</th><th>依据</th></tr></thead>
+<tbody>
+<tr class="hl"><td>模型规模</td><td><b>Qwen2.5-1.5B</b></td><td>0.5B 快 2.7x，但 5 个用例只对 1 个，且都是语义级错误（8.2）</td></tr>
+<tr class="hl"><td>量化格式</td><td><b>Q4_K_M</b></td><td>基线口径四档第一（25.4 / 16.8），质量也优于 Q4_0（8.1）</td></tr>
+<tr><td>为什么不是 Q4_0</td><td>不选</td><td>目标机上只快 8% / 5%，却带着粤语复读崩坏与韩语混英文实词；它的优势本就建立在 A8 没有的 dotprod 上（第六、七节）</td></tr>
+<tr><td>为什么不是 IQ4_NL</td><td>不选</td><td>基线比 Q4_K_M 慢 18% / 11%，质量也没有更好（8.1 + 8.2）</td></tr>
+<tr><td>两端能否共用一个包</td><td><b>能，就是用 Q4_K_M</b></td><td>在 iPhone（A13+）上比 Q4_0 慢 1.2~1.5x（prefill 1.46x / 生成 1.16x），换来目标机最快 + 质量更稳</td></tr>
+<tr class="hl"><td><b>落地状态</b></td><td><b>已生效（2026-09-24）</b></td><td>两端内置包已从 <code>qwen25-1.5b-q4_0-…-v1</code> 换为 <code>qwen25-1.5b-q4km-zh-ja-ko-en-yue-v1</code>（1.05 GiB）。切换只需换内置包 + 重跑 <code>gen-ios-project.py</code>，<b>不用改任何代码</b> —— 两端的「默认翻译模型」就是内置的那个包</td></tr>
+</tbody>
+</table>
+
+<div class="note">
+<b>落地验收</b>：iOS 构建产物 <code>.app/BundledModels/</code> 下 <code>asr</code> / <code>translation</code> 各带自己的 <code>manifest.json</code>（目录没被压平）；两端读到的 id、以及 <code>model.gguf</code> 的 SHA256 与包内 <code>manifest.json</code> 声明<b>三者一致</b>。ASR 侧未受影响。
+</div>
+
+<div class="note warnbox">
+<b>但要说清楚：换成 Q4_K_M 也救不了 iPad mini 4 的速度。</b>前面几节的优化（dotprod / repack / Q4_0）在这台机器上<b>一个都拿不到</b>，剩下的天花板是硬件本身。按单核性能差 3~5 倍粗估，1.5B Q4_K_M 在 A8 上大约是 <b>prefill 5~8 t/s、生成 4~7 t/s</b>；一段 200 token 的冷启动 prefill 就是 <b>25~40 秒</b>，之后每次换语向都要重付一遍。<br><br>
+⚠️ <b>这是推算，真机一次都没测过</b> —— <code>设置页弹窗修复报告.html</code> 里就写着 A8 的延迟 / 发热 / 内存占用「都还没有实测数据」。要落实这个判断，只能在 iPad 上真跑一次。<br><br>
+<b>如果 iPad mini 4 必须做到「能用」，方向不是换量化档位，而是换引擎</b> —— 上 400M 级的专用 NMT（<code>端侧翻译引擎评估.html</code> 已评估 M2M100-418M 这条路）。参数量小一个数量级，速度收益远大于任何量化技巧，代价是模型与运行时都要重做。
+</div>
+
+<h2>九、Qwen3-1.7B 值得换吗 —— 更慢，而且更差</h2>
+<p>第三节评估的是 <b>Qwen3.5</b>，这一节是它的前代 <b>Qwen3</b>（别混淆）。Qwen3-1.7B 参数量 1.72B，只比现役的 1.54B 多 12%，架构也几乎一致（28 层、16 头 / 8 KV 头的 GQA），是「同规模换一代」的最直接候选。模型取 unsloth 的官方量化（<code>Qwen3-1.7B-Q4_K_M</code> / <code>-Q4_0</code>，从 BF16 正规量化，不是二次加工）。</p>
+
+<div class="note">
+<b>先说一个方法论前提，避免重复上次的坑。</b>Qwen3 是有 thinking 能力的模型，prompt 里必须在 assistant 后补一个<b>空 think 块</b>才能让它直接输出译文。这次的空块写法是从官方 <code>tokenizer_config.json</code> 的 chat template 里<b>逐字抄的</b>：
+<br><code>{{- '&lt;think&gt;\n\n&lt;/think&gt;\n\n' }}</code>
+<br>而不是凭印象写的 —— 所以下面的结论<b>不是</b>「模板没配对导致的假失败」（那个教训见第三节）。
+</div>
+
+<h3>9.1 速度：三个口径下都比现役慢</h3>
+<table>
+<thead><tr><th>口径</th><th>Qwen2.5-1.5B Q4_K_M<br>（现役）</th><th>Qwen3-1.7B Q4_K_M</th><th>Qwen3-1.7B Q4_0</th></tr></thead>
+<tbody>
+<tr class="hl"><td><b><code>armv8-a</code> 基线 / t=2</b><br><span class="sub">= iPad mini 4 口径</span></td><td>26.1 / 17.5</td><td><b>23.9 / 15.7</b><br><span class="bad">0.92x / 0.89x</span></td><td>21.6 / 14.7<br><span class="bad">0.83x / 0.84x</span></td></tr>
+<tr><td>dotprod / t=2</td><td>79.9 / 28.2</td><td>73.6 / 25.9<br><span class="bad">0.92x / 0.92x</span></td><td>95.7 / 29.3<br><span class="ok">1.20x / 1.04x</span></td></tr>
+<tr><td>dotprod / t=4</td><td>109.7 / 31.6</td><td>102.9 / 28.9<br><span class="bad">0.94x / 0.91x</span></td><td>126.3 / 30.8<br><span class="ok">1.15x / 0.98x</span></td></tr>
+</tbody>
+</table>
+<p class="sub">数值为 <code>llama-bench</code> 的 prefill(pp512) / 生成(tg128) t/s，逐项串行。模型体积：现役 1060 MiB、Qwen3 Q4_K_M 1050 MiB、Qwen3 Q4_0 1002 MiB —— 三者几乎一样大，所以速度差就是纯算力差。参数量 +12%、层宽从 1536 加到 2048，换来 8~11% 的延迟。</p>
+
+<p>表里有一格值得单独看：<b>Qwen3-1.7B Q4_0 在 dotprod 下 prefill 反超现役 20%，到了基线口径却掉到 0.83x</b>。又一次印证那条规律 —— 看「谁从 dotprod 拿得多」：</p>
+<ul>
+<li>Qwen3 Q4_0 拿 <b>4.44x / 1.98x</b></li>
+<li>Qwen3 Q4_K_M 拿 3.08x / 1.66x</li>
+<li>Qwen2.5 Q4_K_M 拿 3.06x / 1.61x</li>
+</ul>
+<p><b>谁从 dotprod 拿得多，谁在拿不到 dotprod 的机器上就掉得狠。</b>Q4_0 那一格的优势完全建立在 A8 没有的指令上。</p>
+
+<h3>9.2 质量：5 个用例里比现役多错一格，而且错法更重</h3>
+<table>
+<thead><tr><th>用例</th><th>Qwen3-1.7B Q4_K_M</th><th>Qwen3-1.7B Q4_0</th><th>Qwen2.5-1.5B Q4_K_M（现役）</th></tr></thead>
+<tbody>
+<tr><td>英→中 ①</td><td class="ok">✅ 明天早上八点半有前往上海的火车，但我仍然需要买票。</td><td class="ok">✅ 明天早上八点三十分有前往上海的火车，但我仍然需要买票。</td><td class="ok">✅ 明天早上八点半有一班去上海的火车，但我还需要买票。</td></tr>
+<tr><td>英→中 ②</td><td class="ok">✅ 我在这里等了超过一小时，没有人告诉我会议被取消了。</td><td class="ok">✅ 我在这里等了超过一小时，没人告诉我会议取消了。</td><td class="ok">✅ 我已经在这里等了一个多小时，但没有人告诉我会议取消了。</td></tr>
+<tr class="warn"><td><b>中→日</b></td><td class="bad">❌ <b>洗手間</b>はどこですか？<br><span class="sub">「洗手間」是中文汉字直搬，日语里不成立（应为「トイレ」/「お手洗い」）。带「は」「ですか」的假名，所以 <code>script_ok</code> 照样放行</span></td><td class="mid">△ このトイレはどこですか？<br><span class="sub">加了「この」，源句没有"这个"</span></td><td class="ok">✅ トイレはどこですか？</td></tr>
+<tr class="warn"><td><b>中→韩</b></td><td class="bad">❌ 오늘부터 다음 주말에 너가 시간이 있는가? 내가 너와 함께 식사할 수 있을까?<br><span class="sub">「这个周末」变成「오늘부터 다음 주말」（从今天起下周末）—— <b>语义跑偏</b>，还用书面体「-는가?」</span></td><td class="bad">❌❌ <b>이周末你是空闲的吗？我请你吃饭。</b><br><span class="sub">除首个「이」外<b>整句输出中文</b> —— 目标语言完全没切换</span></td><td class="bad">❌ 이週末 여유가 있나요? 저에게 식사를<b>请你</b>すること 생각해요.<br><span class="sub">混入中文「请你」，且「週」是繁体</span></td></tr>
+<tr class="warn"><td><b>日→中</b></td><td class="ok">✅ 对不起，能告诉我从这里到车站的路线吗？</td><td class="bad">❌ <b>谢谢</b>，能告诉我从这里到车站的路线吗？<br><span class="sub">「すみません」是道歉语，译成「谢谢」是实义错误</span></td><td class="ok">✅ 不好意思，能告诉我去车站的路吗？</td></tr>
+</tbody>
+</table>
+<p class="ok"><b>Qwen3-1.7B Q4_K_M：对 3 错 2（中→日、中→韩）　|　现役 Qwen2.5-1.5B Q4_K_M：对 4 错 1（中→韩）</b></p>
+
+<h3>9.3 结论：不换</h3>
+<table>
+<thead><tr><th>维度</th><th>Qwen3-1.7B 相对现役</th><th>该换吗</th></tr></thead>
+<tbody>
+<tr><td>速度（目标机口径）</td><td>慢 <b>8~11%</b>（23.9/15.7 vs 26.1/17.5）</td><td class="bad">不换</td></tr>
+<tr><td>速度（iPhone 口径）</td><td>Q4_K_M 仍慢 6~8%；只有 Q4_0 在 dotprod 下快 15~20%，但 Q4_0 本身不可用</td><td class="bad">不换</td></tr>
+<tr><td>质量</td><td>多错一格（中→日输出中文汉字），中→韩错得更重</td><td class="bad">不换</td></tr>
+<tr><td>体积</td><td>持平（1050 vs 1060 MiB）</td><td>—</td></tr>
+</tbody>
+</table>
+
+<div class="note warnbox">
+<b>两条要注意的：</b>
+<br><br>
+① <b>Q4_0 对 Qwen3 的破坏比它对 Qwen2.5 的破坏更重。</b>同一份 prompt 下，Qwen3 Q4_0 出现了<b>整句输出中文</b>（中→韩）和<b>把「すみません」译成「谢谢」</b>（日→中）这类实义错误，而 Qwen3 Q4_K_M 在这两句上是「错得轻一些」的（虽然中→日仍有问题）。这再一次说明 Q4_0 不该做默认。<br><br>
+② <b>这次没给 Qwen3 调 prompt，这是个诚实的 caveat。</b>本 prompt 是为 Qwen2.5 调的（与 <code>translator.cpp</code> 的 qwen 分支逐字一致，3 组 few-shot）。Qwen3 是带 thinking 训练的一代，对 few-shot 模仿式 prompt 的偏好可能不同。但即便调优能把质量拉平，<b>速度那 8~11% 的亏也补不回来</b>（那是纯算力差，不是 prompt 问题），所以方向依然是负收益。要真换模型，值得试的是 3B 级（<code>端侧翻译引擎评估.html</code> 里评过的专用 NMT 路线），不是「1.5B 换 1.7B」。
+</div>
+
+<h2>十、复现方法</h2>
+<ul>
+<li><code>python3 scripts/bench-llama-arm.py</code> —— 从 <code>.vtmodel</code> 解出 gguf，按 <code>--archs / --threads / --quantize</code> 跑速度矩阵，输出相对加速比</li>
+<li><code>python3 scripts/check-translation-quality.py &lt;model&gt; --case en2zh,zh2yue</code> —— 用生产 prompt 跑固定例句，并排打印译文 <b>和</b> 该 prompt 下的真实 prefill / 生成速度。<code>--arch armv8-a</code> 切到目标机的基线指令集（只影响速度、不影响译文），<code>--shots 1..3</code> 试 few-shot 组数</li>
+</ul>
+
+<p>第八节（目标机口径）的做法 —— <b>关键是单独编一套基线指令集的二进制</b>，不是在同一份构建上改线程数：</p>
+<pre style="background:#f6f5f4;border:1px solid #eceae8;border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:12.5px;line-height:1.6"><code># 1) 编两套，各自独立构建目录
+for ARCH in armv8-a armv8.2-a+dotprod+fp16; do
+  tag=$(echo $ARCH | tr '+' '_')
+  B=.tools/quality-check/build-completion-$tag
+  cmake -S ios/third_party/src/llama.cpp -B $B -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=$ARCH \
+    -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON \
+    -DLLAMA_BUILD_SERVER=ON -DLLAMA_CURL=OFF \
+    -DGGML_METAL=OFF -DGGML_ACCELERATE=OFF -DGGML_BLAS=OFF -DGGML_OPENMP=OFF
+  cmake --build $B --target llama-completion llama-bench -j 8
+done
+
+# 2) 基线口径速度矩阵（-t 2 = A8 的物理核数）
+Q=.tools/quality-check
+.tools/quality-check/build-completion-armv8-a/bin/llama-bench \
+  -m $Q/qwen25-1.5b-q4_0-zh-ja-ko-en-yue.gguf \
+  -m .tools/q-eval/qwen2.5-1.5b-instruct-iq4_nl.gguf \
+  -m $Q/qwen25-1.5b-q4km-zh-ja-ko-en-yue.gguf \
+  -m $Q/qwen25-1.5b-q3-zh-ja-ko-en-yue.gguf \
+  -m .tools/q-eval/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+  -t 2 -p 512 -n 128 -r 2 -o json
+
+# 3) 目标机口径的译文 + 生产工况速度
+python3 scripts/check-translation-quality.py \
+  .tools/q-eval/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+  $Q/qwen25-1.5b-q4km-zh-ja-ko-en-yue.gguf \
+  .tools/q-eval/qwen2.5-1.5b-instruct-iq4_nl.gguf \
+  --arch armv8-a --threads 2 --case en2zh,en2zh2,zh2ja,zh2ko,ja2zh</code></pre>
+
+<p>第九节（Qwen3-1.7B）的做法 —— <b>换模型，不换格式</b>，所以速度与质量都能直接和第 2、3 步的结果并排比：</p>
+<pre style="background:#f6f5f4;border:1px solid #eceae8;border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:12.5px;line-height:1.6"><code># 1) 下 unsloth 的官方量化（从 BF16 正规量化，不是二次加工）
+#    脚本：.tools/q-eval/fetch-ms.sh  &lt;repo&gt; &lt;file&gt; [段数] [输出名]
+bash .tools/q-eval/fetch-ms.sh unsloth/Qwen3-1.7B-GGUF Qwen3-1.7B-Q4_K_M.gguf 8
+bash .tools/q-eval/fetch-ms.sh unsloth/Qwen3-1.7B-GGUF Qwen3-1.7B-Q4_0.gguf   8
+
+# 2) 先确认 no-think 前缀长什么样 —— 逐字抄官方模板，别凭印象写
+python3 scripts/gguf-kv.py qwen3.gguf tokenizer.chat_template --full
+#   add_generation_prompt 分支：  &lt;|im_start|&gt;assistant\n  +  '&lt;think&gt;\n\n&lt;/think&gt;\n\n'
+
+# 3) 同一套基线二进制、同一组用例（脚本按 gguf 里的 general.architecture 自动补空 think 块）
+python3 scripts/check-translation-quality.py \
+  .tools/q-eval/Qwen3-1.7B-Q4_K_M.gguf \
+  .tools/q-eval/Qwen3-1.7B-Q4_0.gguf \
+  $Q/qwen25-1.5b-q4km-zh-ja-ko-en-yue.gguf \
+  --arch armv8-a --threads 2 --case en2zh,en2zh2,zh2ja,zh2ko,ja2zh</code></pre>
+
+<p><b>复核排序用反转顺序</b>（谁跑在前谁占便宜，这是本轮唯一必须防的偏差）：</p>
+<pre style="background:#f6f5f4;border:1px solid #eceae8;border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:12.5px;line-height:1.6"><code>.tools/quality-check/build-completion-armv8-a/bin/llama-bench \
+  -m $Q/qwen25-1.5b-q4km-zh-ja-ko-en-yue.gguf \
+  -m $Q/qwen25-1.5b-q4_0-zh-ja-ko-en-yue.gguf -t 2 -p 512 -n 128 -r 3</code></pre>
+
+<p>第七节里 IQ4_NL / 对照 Q4_0 的做法（<b>从 F16 正规量化，不用二次量化</b>）：</p>
+<pre style="background:#f6f5f4;border:1px solid #eceae8;border-radius:6px;padding:10px 14px;overflow-x:auto;font-size:12.5px;line-height:1.6"><code># 1) 下 F16 原始权重（3.56 GB）—— 走 ModelScope，别走 hf-mirror（见下方坑）
+#    ModelScope 支持 accept-ranges: bytes，可分段并行；实测 8 段约 4.4 MB/s
+FILE=qwen2.5-1.5b-instruct-fp16.gguf
+curl -L -o $FILE "https://modelscope.cn/api/v1/models/Qwen/Qwen2.5-1.5B-Instruct-GGUF/repo?Revision=master&amp;FilePath=$FILE"
+
+# 2) 编 llama-quantize（cmake 在 .tools/cmakewheel）
+cmake -S ios/third_party/src/llama.cpp -B .tools/q-eval/build-quant -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
+  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_CURL=OFF \
+  -DGGML_METAL=OFF -DGGML_ACCELERATE=OFF -DGGML_BLAS=OFF -DGGML_OPENMP=OFF
+cmake --build .tools/q-eval/build-quant --target llama-quantize -j 8
+
+# 3) 量化（从 F16 不要加 --allow-requantize）
+Q=.tools/q-eval/build-quant/bin/llama-quantize
+$Q $FILE qwen2.5-1.5b-instruct-iq4_nl.gguf IQ4_NL   # 1017 MiB, 4.80 BPW
+$Q $FILE fromfp16-q4_0.gguf            Q4_0          # 1011 MiB, 4.77 BPW
+
+# 4) 比译文 + 生产工况速度（--case 里去掉 zh2yue 就是「排除粤语」的口径）
+python3 scripts/check-translation-quality.py \
+  models/qwen25-1.5b-q4_0-zh-ja-ko-en-yue.vtmodel fromfp16-q4_0.gguf \
+  qwen2.5-1.5b-instruct-iq4_nl.gguf models/qwen25-1.5b-q4km-zh-ja-ko-en-yue.vtmodel \
+  --case en2zh,en2zh2,zh2ja,zh2ko,ja2zh</code></pre>
+
+<h3>踩过的坑（下次直接绕开）</h3>
+<ul>
+<li><b><code>-no-cnv</code> 是评测的生死线。</b>gguf 自带 chat template 时 llama.cpp <b>默认 auto-enable 会话模式</b>（日志：<code>chat template is available, enabling conversation mode</code>），喂进去的完整 prompt 会被当成 user message <b>再套一次模板</b>。本报告早期的一批质量数据就是这么被污染的。</li>
+<li><b>工具别选错：</b><code>llama-cli</code> 是会话工具且<b>不接受</b> <code>-no-cnv</code>（报了也照样进交互模式）；<code>llama-completion</code> 是补全工具，<b>接受</b> <code>-no-cnv</code>。正确组合只有 <code>llama-completion -no-cnv</code>。</li>
+<li>输出流：<code>-no-cnv</code> 下 <b>stdout 里只有译文</b>、stderr 全是日志；会话模式下 stdout 可能全空。提取译文时不要把译文行丢进整行黑名单 —— 「<code>[end of text]</code>」这种尾巴会让整条译文被误杀。</li>
+<li><b>Qwen3 / Qwen3.5 的「no-think」写法必须从 gguf 里读，别凭印象。</b>这两个架构要在 assistant 后补一个空 think 块（否则模型会开始长篇思考）。Qwen3-1.7B 的 gguf 自带模板里，<code>enable_thinking is false</code> 分支逐字是 <code>'&lt;think&gt;\n\n&lt;/think&gt;\n\n'</code> —— 用它之前先 <code>python3 scripts/gguf-kv.py &lt;m.gguf&gt; tokenizer.chat_template --full</code> 核对一眼，几秒钟的事，写错就是整轮数据报废。<br>本项目硬编码拼 prompt、不走 Jinja，所以必须自己补；<b>而且要先按 gguf 的 <code>general.architecture</code> 判断补不补</b> —— Qwen2 / Qwen2.5 没有 thinking 概念，补了会被当成正文输出。分隔符 <code>&lt;|im_start|&gt;</code> / <code>&lt;|im_end|&gt;</code> 各代一致。</li>
+<li><b>GGUF 的 KV 类型枚举别凭记忆写。</b><code>STRING=8</code> / <code>ARRAY=9</code>（不是 0/1 —— 按定义顺序排是 UINT8..BOOL 占 0~7）。类型错一个，后面偏移全部错位，症状是读元数据时抛 <code>MemoryError</code>（把随机字节当字符串长度）。读元数据直接用 <code>scripts/gguf-kv.py</code>（本轮新增，读任意 gguf 的 KV 元数据），不要每次现写 inline 解析。</li>
+<li>用 <code>subprocess</code> 调用 llama 系工具必须传 <code>stdin=subprocess.DEVNULL</code>，否则进程生成完后等 stdin，脚本会挂死。</li>
+<li><b>下模型走 ModelScope，别走 hf-mirror。</b>同一天实测：hf-mirror <b>0.18 MB/s</b>（3.5 GB 要下 4 小时），ModelScope <b>3.9 MB/s</b> —— 快 22 倍，而且 ModelScope 的 CDN 带 <code>accept-ranges: bytes</code>，可以分段并行。hf-mirror 还<b>不支持</b> <code>-C -</code> 断点续传（重试从头覆盖）。</li>
+<li><b>ModelScope 分段下载的坑</b>：它的 API 会 302 到 CDN，而 <b>CDN 的 206 响应不带 <code>Content-Range</code></b>，所以「先 <code>-r 0-0</code> 读总大小」这招失效（只会拿到 <code>content-length: 1</code>）。总大小要从<b>不带 Range 的响应头</b>里取 <code>content-length</code>，且必须取<b>最后一个</b> —— 前面那个 369 是 302 响应体的大小。</li>
+<li><b>换量化档位必须从 F16 重新量化</b>，不能用 <code>--allow-requantize</code> 二次加工。二次量化的 Q4_0 曾把「to Shanghai」译成「从 Shanghai」；本次的 IQ4_NL 也是从 F16 量的，才有资格拿来判断质量。</li>
+</ul>
+
+<footer>
+VoiceTranslator · 量化档位与 Qwen3.5 端侧实测报告 · 2026-09-24<br>
+测试环境：Apple A18 Pro · llama.cpp f29f6ca（<code>-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16</code>）· 全部测量逐项串行，无并行干扰<br>
+第六节（Q4_0 质量回归）为「把 Q4_0 打成 <code>.vtmodel</code> 并设为两端内置默认包」时补测，用生产 prompt、greedy 采样、4 线程；复读现象两次独立复现<br>
+第七节（IQ4_NL / 从 F16 重量的 Q4_0）用官方 <code>qwen2.5-1.5b-instruct-fp16.gguf</code>（3.56 GB，ModelScope 下载）经 <code>llama-quantize</code> 正规量化，未使用 <code>--allow-requantize</code>；测量期间无其他负载<br>
+第八节（目标机口径）另编一套 <code>-DGGML_CPU_ARM_ARCH=armv8-a</code> 的 llama-bench / llama-completion（独立构建目录，不是同一份二进制切线程），线程固定 2（A8 的物理核数）；Q4_K_M 与 Q4_0 的排序做过「反转顺序 + <code>-r 3</code>」复核。0.5B 用官方 <code>qwen2.5-0.5b-instruct-q4_k_m.gguf</code>（ModelScope）。<b>A8 上的绝对速度仍是按单核性能差粗估的推算，未在真机测过。</b><br>
+8.4 的切换已落地：<code>bundle-models.py --pick translation=qwen25-1.5b-q4km-zh-ja-ko-en-yue-v1 --target both</code> + <code>gen-ios-project.py</code>，并用 <code>build-ios.sh</code> 做了一次真实构建验证（成功，产物内 id 与 SHA256 均对）。<br>
+第九节（Qwen3-1.7B）用 unsloth 的 <code>Qwen3-1.7B-Q4_K_M.gguf</code> / <code>Qwen3-1.7B-Q4_0.gguf</code>（ModelScope 下载，从 BF16 正规量化），no-think 前缀逐字抄自官方 <code>tokenizer_config.json</code>；速度与质量都用第八节那套 <code>armv8-a</code> / 2 线程二进制，口径可直接对比。
+</footer>
+
+</div>
+</body>
+</html>

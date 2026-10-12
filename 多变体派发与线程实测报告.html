@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多变体 CPU 派发验证 · 线程数实测报告</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --line:#e4e7ec; --ink:#1a1d21; --dim:#5b6470;
+    --accent:#1f6feb; --ok:#12805c; --warn:#b45309; --bad:#b42318; --code:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:32px 20px 64px;background:var(--bg);color:var(--ink);
+       font:15px/1.7 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:28px}
+  h2{font-size:19px;margin:36px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:15px;margin:22px 0 8px;color:var(--dim);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:18px 20px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:var(--code);font-weight:600;color:var(--dim);font-size:13px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+  code{background:var(--code);padding:1px 5px;border-radius:4px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;
+      padding:14px 16px;overflow-x:auto;line-height:1.55}
+  .ok{color:var(--ok);font-weight:600}
+  .warn{color:var(--warn);font-weight:600}
+  .bad{color:var(--bad);font-weight:600}
+  .pill{display:inline-block;font-size:12px;padding:2px 9px;border-radius:99px;
+        background:#eaf2ff;color:var(--accent);font-weight:600}
+  .pill.done{background:#e6f4ee;color:var(--ok)}
+  .pill.todo{background:#fdf1e3;color:var(--warn)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:14px 0}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .kpi .v{font-size:24px;font-weight:700;letter-spacing:-.02em}
+  .kpi .k{font-size:12px;color:var(--dim);margin-top:2px}
+  .note{border-left:3px solid var(--accent);padding:2px 0 2px 14px;color:var(--dim);font-size:14px}
+  .note.bad{border-left-color:var(--bad)}
+  .note.warn{border-left-color:var(--warn)}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>多变体 CPU 派发 · 验证与线程实测报告</h1>
+<div class="sub">VoiceTranslator v0.2.8 · 2026-09-30 · iOS 先行（Android 未接入）</div>
+
+<div class="card">
+  <h3 style="margin-top:0">一句话结论</h3>
+  <p style="margin:6px 0 0">
+    同一份二进制已经能在 <b>A8（无 dotprod）</b>与 <b>A18（dotprod + i8mm）</b>上各跑到该机器的最优路径：
+    三份变体归档静态共存、运行期按 CPU 特性选择，<b>A8 那份指令流里 0 条 dotprod/i8mm</b>。
+    本轮另外实到两条：<b>Apple 上 i8mm 档比 dotprod 慢，必须降权</b>（已实现）；
+    <b>线程数不是越多越好 —— 4 是 A18 甜点，6 反而让生成掉 20%</b>。
+  </p>
+</div>
+
+<div class="grid">
+  <div class="kpi"><div class="v">0</div><div class="k">基线变体的 sdot/smmla 条数（A8 安全）</div></div>
+  <div class="kpi"><div class="v">4</div><div class="k">门禁全过（3 平台 × 4 道）</div></div>
+  <div class="kpi"><div class="v">1.75×</div><div class="k">A18 上 4 线程 vs 2 线程的 prefill</div></div>
+  <div class="kpi"><div class="v">3.2 MiB</div><div class="k">三份变体归档合计增量</div></div>
+</div>
+
+<h2>1 静态门禁：归档里到底编出了什么</h2>
+<p>四道判据全过，<b>macOS / iphoneos / iphonesimulator 三平台数字一致</b>。
+第 1、2 道用链接器裁决（<code>ld -r -all_load</code> 合并三份归档，退出码 0、0 条 duplicate symbol），
+第 3、4 道数指令。</p>
+
+<table>
+  <thead><tr><th>变体</th><th>编译目标</th><th class="num">sdot/udot</th><th class="num">smmla/ummla</th><th>判据</th></tr></thead>
+  <tbody>
+    <tr><td><code>armv8a</code>（基线）</td><td>A8~A12</td><td class="num">0</td><td class="num">0</td>
+        <td class="ok">✅ A8 不可能 SIGILL</td></tr>
+    <tr><td><code>dotprod</code></td><td>A13+</td><td class="num">560</td><td class="num">0</td>
+        <td class="ok">✓ 真用上了扩展</td></tr>
+    <tr><td><code>i8mm</code></td><td>A15/A16+</td><td class="num">560</td><td class="num">268</td>
+        <td class="ok">✓ 真用上了扩展</td></tr>
+  </tbody>
+</table>
+
+<h2>2 出货产物的证据：真机切片逐变体反汇编</h2>
+<p>归档门禁只能证明「编出来的归档是对的」，不能证明「链进 App 的还是那份」。
+所以又在真机切片（Debug-iphoneos）上按符号区间统计了一遍：</p>
+
+<pre>二进制里恰好一个 _ggml_backend_cpu_reg（来自 libggml.a 的 dispatch）
+             + _vtv0_ / _vtv1_ / _vtv2_ 三个变体入口
+
+vtv0 符号 330 / 指令 108059   sdot=0     smmla=0      ← A8 会跑的就是这份
+vtv1 符号 330 / 指令 112923   sdot=560   smmla=0
+vtv2 符号 329 / 指令 115310   sdot=560   smmla=268</pre>
+
+<p><code>build-ios.sh</code> 模拟器与 <code>--device</code> 两个切片均 BUILD SUCCEEDED，
+已装到 iPad mini 4（J96AP，iOS 15.8.8）。</p>
+
+<h2>3 运行时门禁：整条链路真的跑通了吗</h2>
+<p>静态门禁证明不了「推理能跑」。用探针驱动真实归档、按生产参数逐变体跑，结果：</p>
+
+<table>
+  <thead><tr><th>门禁</th><th>判据</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td>A 覆盖生效</td><td><code>VT_CPU_VARIANT</code> 强制值必须真的被选中</td>
+        <td class="ok">✓ auto/armv8a/dotprod/i8mm 四个全部命中</td></tr>
+    <tr><td>B1 同变体确定性</td><td>同一变体多次重复之间必须逐字相同（不一致＝真 bug）</td>
+        <td class="ok">✓ 每变体 2 次重复完全一致</td></tr>
+    <tr><td>B2 跨变体</td><td>变体之间「可能」不同（数值路径差异，非缺陷）</td>
+        <td class="ok">✓ Qwen 档 3 变体 × 3 句 out_sha 全同</td></tr>
+  </tbody>
+</table>
+
+<pre>auto→dotprod   99.5 t/s prefill · 188.0 ms · 34.7 t/s 生成
+armv8a         21.2 t/s        · 835.0 ms · 15.8 t/s
+dotprod        98.9 t/s        · 202.0 ms · 31.4 t/s
+i8mm           98.1 t/s        · 214.5 ms · 29.3 t/s
+
+本机相对倍率（生成中位）：dotprod / armv8a = 2.04×（prefill 21.2 → 98.9 t/s）</pre>
+
+<div class="note">
+  <b>注意 <code>auto</code> 挑了 dotprod 而不是 i8mm</b> —— 这不是 bug，见下一节。
+</div>
+
+<h2>4 实测发现一：Apple Silicon 上 i8mm 档比 dotprod 档慢</h2>
+<p>A18 Pro / 生产 Q4_K_M 包 / 2 线程 / 3 次重复取中位：</p>
+
+<table>
+  <thead><tr><th>变体</th><th class="num">冷 prefill</th><th class="num">生成</th><th class="num">热 consume</th></tr></thead>
+  <tbody>
+    <tr><td><code>armv8a</code></td><td class="num">27.8 t/s</td><td class="num">18.8 t/s</td><td class="num">689 ms</td></tr>
+    <tr><td><b><code>dotprod</code></b></td><td class="num"><b>75.5 t/s</b></td><td class="num"><b>29.5 t/s</b></td><td class="num"><b>262 ms</b></td></tr>
+    <tr><td><code>i8mm</code></td><td class="num">72.2 t/s</td><td class="num">27.3 t/s</td><td class="num">270 ms</td></tr>
+  </tbody>
+</table>
+
+<p>Q4_0 上同方向，三次重复一致，不是噪声。原因可查：
+<code>__ARM_FEATURE_MATMUL_INT8</code> 会把 repack 的 kernel <b>整段换掉</b>
+（<code>arch/arm/repack.cpp:2327-2724</code> 与 <code>4083-4515</code>），
+那套 smmla 实现在 Apple 核上不如 SDOT 版。</p>
+
+<div class="note warn">
+  <b>所以照抄上游 score 会选错</b>（上游 i8mm=19 &gt; dotprod=3）。
+  <code>vt_cpu_dispatch.c</code> 的 <code>vt_cpu_score()</code> 因此在 <code>__APPLE__</code> 下
+  把「多要 I8MM 一位」的变体降到与基线同分 → 有 dotprod 就必选 dotprod。
+  <b>非 Apple 无实测数据，仍走上游口径</b>；<code>VT_CPU_VARIANT=i8mm</code> 强制档不受影响，仍可复核。
+</div>
+
+<h2>5 实测发现二：线程数不是越多越好</h2>
+<p>A18 Pro / 生产 Q4_K_M / dotprod 档 / 3 句 × 3 重复取中位（<b>串行</b>，方括号是极差）：</p>
+
+<table>
+  <thead><tr><th class="num">n_threads</th><th class="num">冷 prefill t/s</th><th class="num">热 consume ms</th><th class="num">生成 t/s</th></tr></thead>
+  <tbody>
+    <tr><td class="num">2 <span style="color:#5b6470">（现役生产值）</span></td>
+        <td class="num">88.5 <span style="color:#5b6470">[74.2~94.9]</span></td>
+        <td class="num">207.0 <span style="color:#5b6470">[185~253]</span></td>
+        <td class="num">31.7 <span style="color:#5b6470">[15.2~33.0]</span></td></tr>
+    <tr><td class="num"><b>4</b></td>
+        <td class="num"><b>155.0</b> <span style="color:#5b6470">[144.8~158.1]</span></td>
+        <td class="num"><b>147.5</b> <span style="color:#5b6470">[131~164]</span></td>
+        <td class="num"><b>36.1</b> <span style="color:#5b6470">[19.9~38.3]</span></td></tr>
+    <tr><td class="num">6</td>
+        <td class="num">113.2 <span style="color:#5b6470">[77.4~163.1]</span> <span class="warn">⚠</span></td>
+        <td class="num">149.5 <span style="color:#5b6470">[126~165]</span></td>
+        <td class="num"><span class="bad">25.3</span> <span style="color:#5b6470">[17.4~26.2]</span></td></tr>
+  </tbody>
+</table>
+
+<p><b>4 线程相对 2 线程</b>：prefill <span class="ok">1.75×</span>、延迟 <span class="ok">−29%</span>、生成 <span class="ok">1.14×</span>。
+<b>6 线程</b>：prefill 1.28×（但极差 2.1×，该格不可用）、生成 <span class="bad">0.80×（反而更慢）</span>。</p>
+
+<div class="note">
+  <b>为什么 6 更慢</b>：A18 Pro 是 2P + 4E。生成是<b>逐 token 的 barrier 同步</b>，4 个 E 核参与只拖后腿；
+  prefill 是 batch 内并行，才吃得到多核。→ <b>「核越多越好」在自回归生成上是错的。</b>
+</div>
+
+<div class="note bad">
+  <b>但这不等于该把生产值改成 4。</b> <code>translator.cpp:31</code> 的注释写明：2 线程是<b>故意</b>
+  留核给音频采集 + SenseVoice 的。A8 只有 2 核、本来就饱和，<b>mini 4 上没有可让的余量</b>。
+  正确形态是「按核数/特性自适应」，只对 A13+ 大核机器成立。
+  <br>⚠️ <code>n_threads</code>（生成）与 <code>n_threads_batch</code>（prefill）是两个旋钮，
+  本轮只测了两者相等，最优解很可能不相等（<code>3/4</code>、<code>2/4</code> <b>未测</b>，别当结论）。
+</div>
+
+<h2>6 本轮修掉的两个 bug（都在校验脚本里）</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">① <code>--variants</code> 语义重叠 → 链接期假象 + 结论颠倒</h3>
+  <p style="margin:6px 0">它原本同时决定「<b>链接</b>哪几个归档」与「<b>跑</b>哪几个变体」。传子集时：</p>
+  <ul>
+    <li>链接行少了归档 → <code>Undefined symbols: _vtv0_ggml_backend_cpu_reg</code>。且只缺 vtv0/vtv2、
+        vtv1 正常解析，<b>看起来像归档坏了</b>，其实是命令行把归档拿掉了。</li>
+    <li>更隐蔽：<code>vtv&lt;i&gt;</code> 下标由构建时的<b>全局</b>顺序决定。按子集枚举下标会把
+        <code>vtv0</code>（基线）的指令数读成 dotprod 的，得出「<b>基线里有 560 条 sdot</b>」这种
+        <b>完全颠倒</b>的结论。</li>
+  </ul>
+  <p style="margin:6px 0"><b>修法</b>：链接行恒取全量顺序表；下标一律按规范表反查；未知变体名直接报错。</p>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">② 成功报成失败（<code>--report</code> 指到仓库外时）</h3>
+  <p style="margin:6px 0">收尾那行对仓库外路径调 <code>relative_to(ROOT)</code> 抛 <code>ValueError</code>。
+  后果比看起来严重：</p>
+  <ul>
+    <li><b>一次全绿的门禁以 <code>exit 1</code> 收场</b> —— 谁按退出码做 CI 就会被误导。</li>
+    <li>它崩在 <code>if fail: return 1</code> <b>之前</b>，所以真正的「门禁未通过」也会被崩掉、
+        <b>连诊断信息都印不出来</b>。</li>
+  </ul>
+  <p style="margin:6px 0"><b>修法</b>：显示路径容错。两个方向各验一次 ——
+  <code>--binary /bin/ls</code> → <code>EXIT=1</code> 且有诊断；
+  <code>--report /tmp/…</code> → <code>EXIT=0</code> 且报路径。</p>
+</div>
+
+<h2>7 用户原请求的三项要求，当前落点</h2>
+
+<table>
+  <thead><tr><th>要求</th><th>状态</th><th>落点</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Qwen 与 Gemma 都吃 dotprod</td>
+      <td><span class="pill done">已落地</span></td>
+      <td>变体派发在 <code>ggml-cpu</code> 后端层，与模型无关 —— 两类模型自动受益。
+          Gemma 分支已在探针里跑通（用通用 Gemma-3-1B 验证机制；
+          TranslateGemma-4B 本体因 gated 且 HF 不通，<b>未取得</b>）。</td>
+    </tr>
+    <tr>
+      <td>兼容 iPad mini 4 运行</td>
+      <td><span class="pill done">已落地</span></td>
+      <td>基线变体 0 条 dotprod/i8mm（静态门禁 + 真机切片双重证明）；
+          <code>auto</code> 判不出特性时回落 index 0；<code>VT_CPU_VARIANT</code> 非法值也回落、不会变砖。
+          两个切片构建成功并已装到真机。</td>
+    </tr>
+    <tr>
+      <td>iPhone 16 以后优化运行</td>
+      <td><span class="pill done">部分落地</span></td>
+      <td>dotprod 档已生效（本机 dotprod/armv8a = 生成 2.04×、prefill 4.7×）。
+          <b>还差的「剩余优化措施」见下表</b>。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>8 尚未落实的优化（用户原话「所有的优化措施」的剩余部分）</h2>
+
+<table>
+  <thead><tr><th>措施</th><th>状态</th><th>依据 / 阻塞点</th></tr></thead>
+  <tbody>
+    <tr><td>prompt few-shot 3 → 1</td><td><span class="pill todo">未落实</span></td>
+        <td>附录 A.4 实测省 <b>28% prefill</b>，直接打在「第一句 10~14 秒」上。
+            需先验质量不掉档（中译韩、中译粤是已知短板）。</td></tr>
+    <tr><td><code>n_threads</code> 按核数自适应</td><td><span class="pill todo">未落实</span></td>
+        <td>本轮已有数据（4 是甜点），但需先补测 <code>n_threads</code> /
+            <code>n_threads_batch</code> 分离，且要避免与「留核给 ASR」冲突。</td></tr>
+    <tr><td>Android 侧接入多变体派发</td><td><span class="pill todo">未落实</span></td>
+        <td><code>app/src/main/cpp/CMakeLists.txt:17</code> 仍写死 <code>armv8-a</code>，
+            <b>所有 A13+ 安卓机都在跑基线路径</b>。本机无 JDK/Android SDK，真验收要回 Windows。</td></tr>
+    <tr><td><code>--binary</code> 门禁纳入常规回归</td><td><span class="pill todo">未落实</span></td>
+        <td>目前是手动跑。</td></tr>
+  </tbody>
+</table>
+
+<h2>9 顺手发现的一处仓库不一致（未改动，待确认）</h2>
+<div class="note bad">
+  <code>model-manifests/translation.json</code> 的 id 是
+  <b><code>qwen25-3b-q4km-four-language-v1</code></b>（"Qwen 3B"），但
+  内置默认档是 <b><code>qwen25-1.5b-q4km-zh-ja-ko-en-yue-v1</code></b>（1.5B）；
+  <code>models/</code> 下<b>根本没有</b> 3B Q4_K_M 这个包（只有 <code>qwen25-3b-q3-…vtmodel</code>）；
+  且该文件<b>不被任何代码引用</b>。<br>
+  → 判断是早期遗留的死清单，但它写着「3B / Q4_K_M」，与真实默认档矛盾，
+  属于「看起来仍然合理的错误陈述」那一类。建议删或改，按约定<b>没有先斩后奏</b>。
+</div>
+
+<h2>10 复现命令</h2>
+<pre># 静态四道门禁 + 归档产出
+bash scripts/build-ggml-cpu-variants.sh --platform macos
+bash scripts/build-ggml-cpu-variants.sh --platform iphoneos
+
+# 运行时门禁（全量三变体）
+python3 scripts/verify-cpu-variants.py --no-build --repeats 2
+
+# 真机切片的指令集判据（出货产物本身的证据）
+python3 scripts/verify-cpu-variants.py --binary \
+  ios/build-device/Build/Products/Debug-iphoneos/VoiceTranslator.app/VoiceTranslator
+
+# 线程数扫描（⚠️ 三个档位必须串行，并行会互相污染）
+for T in 2 4 6; do python3 scripts/verify-cpu-variants.py --no-build \
+  --variants dotprod --threads $T --repeats 3 --report /tmp/vt-threads-$T.json; done
+
+# 回归
+python3 scripts/tests/test_model_pack.py</pre>
+
+<p style="margin-top:34px;color:#5b6470;font-size:13px">
+  实测数据、逐条译文与完整踩坑清单见 <code>.workbuddy/memory/ENGINEERING-NOTES.md</code>（A.8 / A.8.1~A.8.7）。
+  本机是 Apple Silicon，绝对 t/s <b>不能外推到 A8</b>，只有同机相对倍率可用。
+</p>
+
+</div>
+</body>
+</html>

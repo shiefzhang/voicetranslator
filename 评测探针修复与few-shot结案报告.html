@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 评测探针修复与 few-shot 结案</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">MEASURED · 2026-09-30 · 第 3 轮</div>
+  <h1>评测探针里藏着两个真 bug，<br>few-shot 结案为「不改」</h1>
+  <p class="lead">原本只是想给「裁 few-shot 值不值」补证据：把样本从 6 条临时用例扩到仓库自带的 <b>20 条</b> <code>evaluation/zh_en_ja_sample.jsonl</code>。扩样本的过程里挖出<b>两个一直在污染所有质量与速度读数</b>的探针 bug —— 它们比 few-shot 本身重要得多。</p>
+  <p>结论：<b>探针侧两处修复（已落地 + 已加回归测试）</b>；few-shot <b>不改生产值</b>（3 组），理由是速度收益真实但质量结论不稳；内置翻译档位 <b>保持 Qwen2.5-1.5B Q4_K_M</b>，不换 Gemma 4B。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>2 个真 bug</b><code>-f</code> 吃末尾换行<br><span class="muted">探针多喂一个 BOS</span></div>
+  <div class="metric"><b>0 处改生产</b>few-shot 保持 3 组<br><span class="muted">评测脚本改 3 个文件</span></div>
+  <div class="metric"><b>68 项测试全绿</b>新增 27 项契约测试<br><span class="muted">每条失败路径都验过「真的会红」</span></div>
+  <div class="metric"><b>结论会翻转</b>6 条说无损 → 20 条说变差<br><span class="muted">这是本轮最该记住的一条</span></div>
+</div>
+
+<div class="callout bad">
+<b>为什么必须先修探针再谈模型：</b>这两个 bug 的症状是「译文乱 / 多出垃圾前缀」，
+看起来像<b>模型或量化不行</b>。若照着带 bug 的读数下结论，会把「探针喂错了」
+写成「这个模型质量差」，进而做出错误的选型决定。
+</div>
+</section>
+
+<section>
+<h2>一、Bug #1：<code>llama-completion -f</code> 会吃掉 prompt 末尾恰好一个 <code>\n</code></h2>
+
+<p>同一串、只改编尾的换行个数，读 <code>prompt eval time = … ms / N tokens</code> 里的 N：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>prompt 结尾</th><th><code>-p</code> 传参</th><th><code>-f</code> 读文件</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>无换行</td><td>42</td><td>42</td><td>一致</td></tr>
+<tr><td><b>1 个 <code>\n</code></b></td><td><b>43</b></td><td class="no"><b>42</b></td><td><b>被吃掉 —— 这就是 bug</b></td></tr>
+<tr><td>2 个 <code>\n</code></td><td>43</td><td>43</td><td>吃一个还剩一个（两个 <code>\n</code> 合成 1 token）</td></tr>
+<tr><td>空格 + <code>\n</code></td><td>44</td><td>43</td><td>等价于只有空格</td></tr>
+<tr><td>制表符</td><td>43</td><td>43</td><td>没有末尾 <code>\n</code> 可吃</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+<b>为什么这是生产路径问题：</b>两端 App 是在<b>内存里拼</b> prefix/suffix 的，
+suffix 末尾那个 <code>\n</code> 一定在 ——
+<code>"&lt;|im_end|&gt;\n&lt;|im_start|&gt;assistant\n"</code>（Qwen）、
+<code>"&lt;end_of_turn&gt;\n&lt;start_of_turn&gt;model\n"</code>（Gemma）。
+用 <code>-f</code> 就<b>少喂一个 token</b>，测的不是生产路径。
+</div>
+
+<h3>为什么藏了这么久：症状分引擎</h3>
+<ul>
+<li><b>ChatML 系（Qwen）几乎无症状</b> —— 对末尾换行不敏感，数字看着都正常。
+    所以过去所有 Qwen 的量化 / 指令集对照都「看起来没问题」。</li>
+<li><b>Gemma 系症状明显但极易误判</b> —— 恒定吐一个垃圾前缀，然后给出<b>正确</b>译文：
+<pre>disputa, トイレはどこですか？
+onyms.明天早上八点三十分，火车去上海，但我还需要买票。
+延续不好意思，请问您能告诉我如何到达车站吗？
+টানা线地铁站距离最近？          ← 孟加拉文
+ский                              ← 只剩西里尔字母</pre>
+<b>第一句译对了</b>，所以短样本一眼扫过去会通过；整体看起来就是「这个模型不行」。</li>
+</ul>
+
+<h3>修法与判据</h3>
+<p>改用 <code>-p</code> 传参（prompt 只有几百字节，远低于 argv 上限），并加
+<code>--no-escape</code> —— <code>-p</code> 默认会把 <code>\n</code> 这类<b>字面转义序列</b>
+当转义处理，而我们传的是<b>真换行</b>；实测加上它 token 数不变（43 → 43），纯属保险。</p>
+<div class="callout good">
+<b>判据（可数、可复算）：</b><code>prompt tok</code> 比 <code>-f</code> 路径<b>恰好多 1</b>。
+开整批前先跑一句核对 —— 本轮修完后 Gemma 单句的 <code>prompt tok</code> 从
+<b>81 → 82</b>，译文同时变干净。
+</div>
+</section>
+
+<section>
+<h2>二、Bug #2：探针的 <code>add_special=true</code> 会多喂一个 BOS</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>谁</th><th>调用</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td><code>llama-completion</code>（探针）</td>
+    <td><code>common_tokenize(ctx, prompt, <b>true</b>, true)</code></td>
+    <td class="no">会额外补一个 BOS</td></tr>
+<tr><td>两端 App</td>
+    <td><code>llama_tokenize(…, add_special=<b>false</b>, parse_special=true)</code><br>
+        <small><code>translator.cpp:37</code> / <code>VTLlama.mm:57</code></small></td>
+    <td class="ok">prompt 文本里的 <code>&lt;bos&gt;</code> 靠 <code>parse_special</code> 解析，恰好一个</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th><code>tokenizer.ggml.add_bos_token</code></th><th>探针 vs App</th><th>后果</th></tr></thead>
+<tbody>
+<tr><td><code>false</code>（Qwen2.5 就是这样）</td><td class="ok">等价</td>
+    <td><b>所以这个坑长期没露头</b></td></tr>
+<tr><td><code>true</code>（Gemma 系）</td><td class="no">探针喂 <code>&lt;bos&gt;&lt;bos&gt;&lt;start_of_turn&gt;…</code></td>
+    <td>多一个 BOS，实测译文前面多出垃圾 token</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>修法不用改 prompt，运行时覆盖元数据即可：</p>
+<pre>--override-kv tokenizer.ggml.add_bos_token=bool:false</pre>
+<div class="callout good">
+<b>判据：</b>覆盖后 <code>&lt;bos&gt;</code> 恰好 <b>1</b> token、<code>&lt;bos&gt;x</code> 恰好 <b>2</b> token
+（覆盖前是 2 / 3）。实测：<code>&lt;bos&gt;</code>→1、<code>x</code>→1、<code>&lt;bos&gt;x</code>→2，全部符合。
+</div>
+</section>
+
+<section>
+<h2>三、Bug #3（同源）：prompt 必须按 <code>engine</code> 分派</h2>
+
+<p><code>models/</code> 下同时躺着两个 <code>kind=translation</code> 的包，
+而脚本默认会<b>把它们都收进来</b>。两个引擎的 prompt 毫无共同点，
+连<b>传进推理层的值都不一样</b>：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th><code>engine</code></th><th>prompt 形态</th><th>few-shot</th><th>传给引擎的是</th></tr></thead>
+<tbody>
+<tr><td><code>llama-qwen2</code></td><td>ChatML <code>&lt;|im_start|&gt;…</code></td><td><b>3 组</b></td><td>英文语种名（<code>Chinese</code>）</td></tr>
+<tr><td><code>llama-gemma3</code></td><td><code>&lt;bos&gt;&lt;start_of_turn&gt;user …</code></td><td><b>无</b>（单轮）</td><td>语言代码（<code>zh</code>）</td></tr>
+</tbody>
+</table>
+</div>
+<p class="muted">对应 <code>Pipeline.java:206-207</code>（<code>boolean gemma=…; String from=gemma?source:languageName(source)</code>）
+与 <code>PromptBuilder.swift:87</code>，两端逐字一致。</p>
+
+<div class="callout bad">
+<b>拿 ChatML 去测 Gemma 的实测症状 —— 失控续写：</b>第一句译对了，之后把 few-shot
+当成「要接着补的内容」，开始<b>编造不存在的例句</b>，还把 <code>&lt;|im_end|&gt;</code> 当正文吐出来，
+且不吐 EOG、硬吃到 256 token 上限：
+<pre>明天早上八点三十分，火车去上海，但我仍然需要买票。&lt;|im_end|&gt;&lt;|im_start|&gt;userI have two cats.&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant我养了两只猫。&lt;|im_end|&gt;&lt;|im_start|&gt;userHow much does it cost to buy a new car?
+…&lt;|im_start|&gt;assistant这本书的价格是20美元。&lt;|im_start|&gt;</pre>
+「I have two cats. / 我养了两只猫。」<b>从来不在任何 prompt 里</b>，是模型续写出来的。
+<b>一眼看过去像「这个模型质量差」。</b>
+</div>
+
+<p>现在的做法：<b>按包内 manifest 的 <code>engine</code> 分派，判不出来直接报错</b>，
+绝不默认按某一族处理。裸 gguf 没有 manifest，只能按 <code>general.architecture</code> 猜 ——
+猜出来会把依据<b>打出来</b>。<code>--shots</code> 只对 <code>llama-qwen2</code> 有效，
+对 Gemma 是空操作，脚本会明说且<b>不下质量结论</b>。</p>
+
+<h3>对齐 prompt 的权威来源与 BOS 必需性</h3>
+<p>唯一权威是 gguf 自带的 <code>tokenizer.chat_template</code>：把里面拼出来的字面量
+<b>逐字抄</b>成代码模板（含每个 <code>\n</code> 的位置）。TranslateGemma 的模板里
+<code>{{ bos_token }}</code> 就在最前面 ⇒ 手写模板必须以 <code>&lt;bos&gt;</code> 开头。</p>
+<div class="callout">
+<b>BOS 必需性的判据：</b>把开头 <code>&lt;bos&gt;</code> 删掉再跑 —— 模型
+<b>直接空输出</b>（立刻 EOG），说明它确实要求 BOS，那么「有且仅有一个」才是对的。
+</div>
+</section>
+
+<section>
+<h2>四、few-shot 结案：20 条口径下「不改」</h2>
+
+<p>Qwen2.5-1.5B Q4_K_M，2 线程（= 生产值），greedy，仓库自带 20 条评测集，
+探针已修（<code>-p</code> + BOS 覆盖）：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>few-shot 组数</th><th>chrF 均值</th><th>中位</th><th>截尾均值<small>去最大最小各 2 条</small></th><th>关键项错误</th><th>prompt token</th><th>冷 prefill 中位</th></tr></thead>
+<tbody>
+<tr><td><b>3</b>（生产值）</td><td><b>0.541</b></td><td>0.563</td><td>0.536</td><td>6 / 20</td><td>136</td><td><b>1858 ms</b></td></tr>
+<tr><td>2</td><td>0.591</td><td>0.587</td><td>0.601</td><td>5 / 20</td><td>113（−17%）</td><td>1771 ms（−8.5%）</td></tr>
+<tr><td>1</td><td>0.534</td><td>0.529</td><td>0.531</td><td>5 / 20</td><td>95（−30%）</td><td>1259 ms（−32%）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>速度收益是真的</h3>
+<p>省下的正好是例句占的那部分：1 组能砍掉<b>三成 prompt、三分之一冷 prefill</b>。
+「第一句特别慢」的来源就是换语向时要重新 prefill 这条 prompt，所以这个收益落在
+用户真正感知得到的地方（非首句只 prefill 正文，不受影响）。</p>
+
+<h3>但质量结论不稳</h3>
+<div class="callout bad">
+<b>chrF 随组数非单调</b>：1 / 2 / 3 = 0.534 / 0.591 / 0.541。均值被<b>少数用例主导</b> ——
+3→2 时有 3 条 <code>|ΔchrF| &gt; 0.2</code>，而且<b>两侧都有</b>：
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>用例</th><th>3 组</th><th>2 组</th><th>Δ</th></tr></thead>
+<tbody>
+<tr><td><code>en-zh-003</code></td><td>0.167</td><td>0.778</td><td class="ok">+0.610</td></tr>
+<tr><td><code>zh-ja-005</code></td><td>0.190</td><td>0.628</td><td class="ok">+0.438</td></tr>
+<tr><td><code>zh-ja-003</code></td><td>0.890</td><td>0.549</td><td class="no">−0.341</td></tr>
+</tbody>
+</table>
+</div>
+逐条分布：「变差 2 / 持平 13 / 变好 5」。<b>20 条样本撑不起「换档位更好」的结论。</b>
+</div>
+
+<div class="callout warn">
+<b>⚠️ 本轮最该记住的一条 —— 结论会随样本翻转：</b>
+<div class="table-wrap">
+<table>
+<thead><tr><th>样本</th><th>逐条结果</th><th>当时的判断</th></tr></thead>
+<tbody>
+<tr><td>6 条临时用例</td><td>6/6 不差、<b>3 条更好</b></td><td class="ok">看着无损，可以裁</td></tr>
+<tr><td><b>20 条仓库评测集</b></td><td>变差 8 / 持平 10 / 变好 2</td><td class="no">翻成有损，不能裁</td></tr>
+</tbody>
+</table>
+</div>
+<b>翻转的方向完全由少数用例决定。</b>样本量不够时，任何「无损 / 有损」的判断都不可信。
+</div>
+</section>
+
+<section>
+<h2>五、结论与重开条件</h2>
+
+<div class="callout good">
+<b>结论 1：few-shot 保持 3 组，不动生产值。</b>
+生产参数（<code>translator.cpp</code> ↔ <code>PromptBuilder.swift</code>）本轮<b>零改动</b>。
+</div>
+
+<div class="callout">
+<b>结论 2：内置翻译档位保持 Qwen2.5-1.5B Q4_K_M，不换成 Gemma 4B。</b>
+与 <code>bundle-models.py</code> 的 <code>DEFAULT_PICKS</code> 一致（实测
+<code>--list</code> 仍选中 <code>qwen25-1.5b-q4km-…-v1</code>，内置合计 1843 MB）。
+</div>
+
+<h3>⚠️ 这份证据的效力边界（必须说清楚）</h3>
+<p>仓库自己的 <code>evaluation/README.md</code> 写着：内置数据集<b>不能用于模型选型</b>，
+正式评测要求<b>每方向至少 200 条</b>。本轮的 20 条<b>低于这条门槛</b>。因此：</p>
+<ul>
+<li>本轮的 20 条证据只能用来 <b>否决</b> 一个改动（「裁 few-shot 的收益不足以抵消风险」），
+    <b>不能用来采纳</b> 一个改动。</li>
+<li>本轮恰好只做了「否决」：不动。</li>
+<li><b>重开条件</b>：按正式门槛准备<b>每向 ≥200 条的配平数据</b>，并把
+    <code>|ΔchrF| &gt; 0.2</code> 的用例逐条人眼看一遍。</li>
+</ul>
+</section>
+
+<section>
+<h2>六、附：同任务换引擎（探针修正后重测）</h2>
+
+<p>同一份 20 条、同一台机器、<code>-p</code> + BOS 覆盖都已生效：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th></th><th>Qwen2.5-1.5B Q4_K_M</th><th>TranslateGemma 4B Q3_K_M</th><th></th></tr></thead>
+<tbody>
+<tr><td>chrF 均值</td><td class="ok"><b>0.541</b></td><td class="no">0.417</td><td></td></tr>
+<tr><td>关键项错误</td><td class="ok"><b>6 / 20</b></td><td class="no">10 / 20</td><td></td></tr>
+<tr><td>prompt token</td><td>136</td><td>85</td><td>Gemma 模板本身更短</td></tr>
+<tr><td>冷 prefill 中位</td><td class="ok"><b>1858 ms</b></td><td class="no">8161 ms</td><td><b>4.4×</b></td></tr>
+<tr><td>生成 t/s</td><td>—</td><td>5.0 ~ 7.2</td><td></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>修正两个探针 bug 后，Gemma 的垃圾前缀完全消失</b>（
+<code>Where is the nearest subway station?</code> 拿到 chrF 1.000），
+说明那批垃圾<b>确实来自探针</b>、不是模型缺陷。但修完仍然：质量明显更差、速度慢 4.4×
+⇒ <b>4 倍参数 + 更低比特 = 两样都输</b>，「大模型质量更好」在这个档位组合上不成立。</p>
+
+<p class="muted">尚未排除：Q3_K_M 对 4B 太狠。定性需要官方 F16 走 <code>llama-quantize</code>
+做正规量化对照（本机包来自官方 <code>google/translategemma-4b-it</code> + 仓库自己的
+<code>prepare_translategemma.py</code>，来历清白）。
+张量表实测：Gemma 的 <code>token_embd.weight</code> 是 <b>Q6_K</b>、<b>无独立
+<code>output.weight</code></b>（tied embeddings）；Qwen 是 <code>token_embd</code> Q4_K
++ 独立 <code>output.weight</code> Q6_K —— 所以「lm_head 精度不足」解释不了，故本轮没有下这个结论。</p>
+</section>
+
+<section>
+<h2>七、验证证据</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>#</th><th>验证项</th><th>结果</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>scripts/tests</code> 全套（model_pack + translation_poc + 新增）</td>
+    <td class="ok">68 项全绿（改动前 54 → 新增 27 → 去重后 68）</td></tr>
+<tr><td>2</td><td>数据集校验的 4 条失败路径<small>缺字段 / 未知语言码 / 源目标相同 / 空文件</small></td>
+    <td class="ok">全部 EXIT=1 且报出可操作原因</td></tr>
+<tr><td>3</td><td>参数校验的 5 条失败路径<small><code>--shots 5</code> / <code>--shots 0</code> /
+    <code>--compare-shots 3,3</code> / <code>7,1</code> / <code>3</code> / <code>a,b</code></small></td>
+    <td class="ok">全部 EXIT=1，文案点明原因</td></tr>
+<tr><td>4</td><td><code>bundle-models</code> 写盘缺文件的回归测试</td>
+    <td class="ok">先确认它<b>真的会红</b>（回退修复后 <code>FileNotFoundError</code>），再确认修复后绿</td></tr>
+<tr><td>5</td><td>tokenize 对齐<small><code>&lt;bos&gt;</code> / <code>x</code> / <code>&lt;bos&gt;x</code></small></td>
+    <td class="ok">1 / 1 / 2，与覆盖前 2 / 2 / 3 对比</td></tr>
+<tr><td>6</td><td>语种契约门禁 <code>verify_model_languages.py</code></td>
+    <td class="ok">status = passed（opus 包按既有例外放行子集）</td></tr>
+<tr><td>7</td><td>依赖本脚本的其它工具<small><code>check-nmt-quality</code> / <code>verify-opus-package</code> /
+    <code>pack-opus-models</code> / <code>export-marian-onnx</code></small></td>
+    <td class="ok">全部仍可运行</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>本轮改动文件</h3>
+<ul>
+<li><code>scripts/check-translation-quality.py</code> —— <code>-p</code> 传参 + <code>--no-escape</code>；
+    BOS 覆盖；<code>engine</code> 分派与 Gemma 模板；<code>--dataset</code> /
+    <code>--compare-shots</code> / <code>--report</code> / <code>--engine</code>；
+    <code>--threads</code> 默认改 2（对齐生产）；<code>--shots</code> 改为<b>显式校验</b>不再静默钳制。</li>
+<li><code>scripts/check-nmt-quality.py</code> —— <code>NAME</code> 表改为复用唯一真源，
+    删掉第二份副本。</li>
+<li><code>scripts/bundle-models.py</code> —— ZIP64 门禁<b>先判文件存在性</b>，
+    修掉一处被现有测试抓到的 <code>FileNotFoundError</code> 回归。</li>
+<li><code>scripts/tests/test_translation_quality.py</code>（新增）、<code>test_model_pack.py</code>（+1 回归）。</li>
+<li><code>evaluation/README.md</code> —— 补「评测生产 prompt 本身」的用法，并重申
+    「内置数据集只能用于否决」的门槛。</li>
+<li>产物：<code>dist/verification/shots-compare-3-1.json</code>、<code>shots-compare-3-2.json</code>。</li>
+</ul>
+</section>
+
+<section>
+<h2>八、未落实项与阻塞</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>措施</th><th>状态</th><th>原因 / 下一步</th></tr></thead>
+<tbody>
+<tr><td>few-shot 裁剪</td><td class="ok">✅ 已结案</td>
+    <td>结论「不改」；重开条件见第五节</td></tr>
+<tr><td><code>--binary</code> 指令集判据纳入常规回归</td><td class="ok">✅ 已落地</td>
+    <td>已接进 <code>build-ios.sh</code>（默认跑，<code>--no-variant-gate</code> 可跳）</td></tr>
+<tr><td>Android 多变体 ISA 派发</td><td class="no">⛔ 阻塞</td>
+    <td>需要 NDK 才能编译与验收；本机没有（<code>CMakeLists.txt:17</code> 仍强制
+        <code>armv8-a</code>，所有 A13+ 安卓机都在跑基线路径）。
+        <b>不做无法验证的盲改</b> —— 那会直接弄坏构建</td></tr>
+<tr><td><code>n_threads</code> 自适应</td><td class="no">⛔ 未做</td>
+    <td>需要把 <code>n_threads</code>（生成）与 <code>n_threads_batch</code>（prefill）
+        <b>分开</b>测出各自最优值；且 iPad mini 4 双核已饱和，那台机器上无收益</td></tr>
+<tr><td>Q3_K_M 是否对 4B 太狠</td><td class="no">⛔ 未定论</td>
+    <td>需要官方 F16 快照（gated 仓库，约 8 GB）走 <code>llama-quantize</code> 正规量化对照</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>另需你确认的两件事</h3>
+<ol>
+<li><b>是否把内置翻译包换成 Gemma 4B？</b> —— 本轮给出的是<b>不建议</b>（第五节结论 2），
+    与第一轮「全部统一 1.5b q4_k_m」一致。若你要的是「让用户能导入 Gemma 作为可选档位」，
+    那是另一件事（包已在 <code>models/</code>，可直接导入）。</li>
+<li><b>是否提交这批改动？</b> —— 本轮新增/修改的文件见第七节，含若干未跟踪的新文件，
+    我没有替你 commit。</li>
+</ol>
+</section>
+
+<footer>
+① 所有速度数字为<b>本机实测</b>（Apple Silicon，<code>armv8.2-a+dotprod+fp16</code> 构建，
+<code>--threads 2</code> 与生产一致，greedy）。<b>绝对 t/s 不可外推到 iPad mini 4（A8）</b>；
+只有同机倍率可用。
+② <code>prompt ms</code> / <code>prompt tok</code> 是<b>整条 prompt</b>
+（system + few-shot + 本句），不是前缀本身 —— <code>llama-completion</code> 不报拆分。
+因此正确比较姿势是<b>同一批用例、两次不同 <code>--shots</code>、逐条相减</b>
+（同一用例的正文完全一样，相减即隔离出 few-shot 的影响）。
+③ <code>chrF</code> 与 <code>critical_terms</code> 沿用仓库既有定义
+（<code>translation_poc.py</code> 的 <code>chrf</code> / <code>critical_ok</code>），
+<b>关键项错误是字面匹配代理指标</b>，会漏掉词形/同义未命中。
+④ 冷 prefill 与生成吞吐存在可见的运行间抖动（个别用例 ±1 s 级），
+所以同组数据看的是<b>中位</b>而非单条。
+⑤ TranslateGemma 4B 本轮只测了 <b>Q3_K_M</b> 一个档位，不能推广到该模型的其它量化档位。
+⑥ 时间线：第一节的 token 数对照表、第三节的失控续写样例、BOS 判据均实测于 2026-09-30；
+第一、二、四、五、六节的数据在同一日同一台机器上测完。
+</footer>
+
+</main></body></html>

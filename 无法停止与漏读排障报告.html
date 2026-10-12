@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 停不下来 + 第二句没朗读（v0.2.15）</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:720px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.half{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+pre .hl{color:#fca5a5;font-weight:700}
+pre .cm{color:#7c8ba1}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">BUGFIX · 2026-10-08 · iOS v0.2.15 (18) · 症状：按停止卡住 + 第二句没朗读</div>
+  <h1>停不下来<br>和漏掉的那一句</h1>
+  <p class="lead">报：「第二句没有朗读，后面就正常了，但是无法停止，卡在录音已停止，正在处理剩余句子」。</p>
+  <p>两件事一件确凿、一件是推断 —— 下面把哪件有证据、哪件只能算推断，分开写清楚。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="callout bad">
+<b>① 停不下来 —— iOS 漏了「采集结束」这一刻，<span class="no">确凿</span>。</b>
+<p>主循环等的是一个叫 <code>captureDone</code> 的标志，而它在会话进行中<b>永远是 false</b>：
+全仓库只有 <code>finally</code> 里才置真。于是按了停止之后主循环无限空转、收尾回调一辈子不来 ——
+界面停在「录音已停止，正在处理剩余句子…」，而且之后<b>再也开不了新会话</b>。</p>
+</div>
+<div class="callout warn">
+<b>② 第二句没朗读 —— 等待窗口里开出了第二条朗读，<span class="half">推断</span>。</b>
+<p>朗读在等录音让出音频会话时，那个「等待」是异步的（最长 0.5 s）。窗口里
+<code>speech.isSpeaking</code> 和 <code>speechHoldActive</code> 都还是 false，
+于是第二条译文会抢着开始 —— 后一条的 <code>speak()</code> 把前一条<b>当场打断</b>。</p>
+<p class="muted">窗口只有 50~150 ms，是概率事件，没拿到真机日志坐实。两条修法都落地并加了日志；
+若再复现，导出诊断日志即可定案。</p>
+</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>项目</th><th>结果</th></tr>
+<tr><td>① 停不下来</td><td>根因 <code>captureDone</code> 无人置位 <small>iOS 没有「采集线程的 finally」这个时刻可以挂</small><br>修法：新增 <code>AudioCapture.onStopped</code> + <code>Pipeline.captureEnded()</code></td></tr>
+<tr><td>② 第二句没朗读</td><td>等待窗口里第二条朗读抢跑，把前一条打断 <small>50~150 ms 概率窗口，暂无真机日志</small><br>修法：标志<b>同步</b>置位 + 采集线程不许动调用方的暂停请求</td></tr>
+<tr><td>顺带修好</td><td>停止时<b>最后那半句</b>没说完的话现在会被正常翻译出来（原来会被丢掉）</td></tr>
+<tr><td>版本 / 装机</td><td><b>0.2.15 (18)</b> 已装到 iPad mini 4（J96AP · iOS 15.8.8）</td></tr>
+<tr><td>判据</td><td><code>test_speech_pipeline.py</code> <b>9 → 25</b> 条；6 类「修复前真实代码」负向自证全部判红</td></tr>
+<tr><td>全套回归</td><td>9 个模块 / <b>184 条</b> / 全 OK；Java 语法 11/11</td></tr>
+</table>
+</div>
+</section>
+
+<section>
+<h2>一、停不下来：一个永远等不到的信号</h2>
+
+<p>流水线的收尾靠这个循环（<code>Pipeline.run()</code>）：</p>
+
+<pre>while !(stateLock.withLock { captureDone }) || !asrJobs.isEmpty { … }</pre>
+
+<p>而 <code>captureDone</code> 在<b>整个仓库里只被置真一次</b> —— 在 <code>finally</code> 里。
+换句话说：会话跑到一半时它是 <code>false</code>，循环就<b>恒真</b>；而 <code>stop()</code>
+只置了 <code>stopRequested</code>（不是 <code>cancelled</code>），所以这个循环<b>退不出去</b>。</p>
+
+<h3>对照 Android —— 它是怎么收尾的</h3>
+<p>Android 的采集是一条真正的线程，循环条件里就带着停止条件，退出即进 <code>finally</code>：</p>
+
+<pre><span class="cm">// Pipeline.java：采集线程</span>
+while (recording &amp;&amp; !stopRequested) { … }
+finally { recording=false; <span class="hl">segmenter.flush()</span>; latest.set(null);
+          <span class="hl">captureDone = true</span>; … }</pre>
+
+<div class="callout">
+<b>iOS 没有「采集线程的 finally」这个时刻可以挂。</b>它的帧是 <code>installTap</code>
+回调派发过来的 —— 没有循环，也就没有循环退出那一刻。这就是漏掉它的原因，
+也是为什么必须为它单独加一条回调。
+</div>
+
+<h3>修法：四步，一步都不能挪</h3>
+<pre>private func captureEnded() {
+    guard <span class="hl">stopRequested || cancelled || !recording</span> else { return }  <span class="cm">// ① 只认「真的结束」</span>
+    let leftover = segmenter; segmenter = nil                     <span class="cm">// ② 先摘引用（防递归）</span>
+    leftover?.flush()                                             <span class="cm">// ③ 再冲刷残留半句</span>
+    stateLock.withLock { <span class="hl">captureDone = true</span> }                      <span class="cm">// ④ 最后才放行主循环</span>
+}</pre>
+
+<div class="table-wrap">
+<table>
+<tr><th>#</th><th>不能动的地方</th><th>挪了的后果</th></tr>
+<tr><td>①</td><td>守卫三个记号：<code>stopRequested</code> / <code>cancelled</code> / <code>!recording</code></td>
+    <td class="no">朗读暂停、积压暂停也会 <code>audio.stop()</code> —— 少了守卫，<b>朗读一发生就会被当成「会话结束」</b></td></tr>
+<tr><td>②</td><td>先摘 <code>segmenter</code> 引用</td>
+    <td class="no">「转写队列满」那条路会在回调里再停一次采集 ⇒ 递归回来 ⇒ 同一段音频被当成两句提交</td></tr>
+<tr><td>③</td><td><code>flush()</code> 排在置位<b>之前</b></td>
+    <td class="no">主循环在「队列已空」上抢先退出 ⇒ 刚冲刷出来的最后半句永远不被转写</td></tr>
+<tr><td>④</td><td><code>captureDone = true</code> 放最后</td><td class="no">同上</td></tr>
+</table>
+</div>
+
+<p>另外给 <code>AudioCapture.stopOnQueue()</code> 的<b>早退路径也补了通知</b>：
+<code>engine.start()</code> 失败时 <code>running</code> 一直是 false，
+会话同样需要有人来收尾。</p>
+</section>
+
+<section>
+<h2>二、第二句没朗读：一个 50~150 毫秒的窗口</h2>
+
+<p>朗读之前必须先把音频会话从录音手里要过来，然后<b>等它确实停下</b>再出声。
+原来那个「本批已经拿到会话」的标志，是放在<b>异步等待的回调里</b>才置的：</p>
+
+<pre>waitForCaptureHeld(attempts: needWait ? 25 : 0, waited: needWait) { [weak self] in
+    self.speechHoldActive = needWait      <span class="hl">// ← 太晚了</span>
+    self.beginSpeaking(request)
+}</pre>
+
+<p>等待最长 0.5 s。这段窗口里，<code>speech.isSpeaking</code> 与 <code>speechHoldActive</code>
+<b>都是 false</b> —— 于是排在后面的第二条译文会把这个状态当成「空闲」，
+再走一遍 <code>startSpeech</code>：<b>两条朗读同时在飞</b>，
+后一条的 <code>speak()</code> 里那段 <code>stopSpeaking(at: .immediate)</code>
+把前一条<b>当场打断</b>。</p>
+
+<div class="callout warn">
+<b>为什么偏偏是「第二句」：</b>冷启动时翻译慢（首个语向要重跑一遍提示词，10~14 秒），
+用户往往连着说好几句；翻译线程随后把第 1 句、第 2 句的译文<b>挨着</b>吐出来，
+第 2 句正好落在第 1 句的等待窗口里。
+之后节奏稳定下来（会话一直「热」着、新译文都落在「正在朗读」窗口里），就再也不出现了 ——
+与「后面就正常了」吻合。
+</div>
+
+<h3>两条修法</h3>
+<div class="table-wrap">
+<table>
+<tr><th></th><th>改什么</th><th>为什么</th></tr>
+<tr><td>①</td><td>标志<b>同步</b>置位再等；「忙」的判定改成<br><code>speech.isSpeaking || awaitingCaptureHold</code></td>
+    <td>窗口里来的新译文只允许<b>顶掉待播</b>，不许另起一条朗读</td></tr>
+<tr><td>②</td><td>采集线程退出朗读暂停时<br><b>只清 <code>playbackHeld</code>，不碰调用方的 <code>playbackHold</code></b></td>
+    <td class="no">原来两个标志一起清：调用方刚为下一条置上的请求会被<b>抹掉</b> ⇒ 它永远等不到「已让出」⇒ 超时后在没让出会话的情况下出声（听感：这句没声音）</td></tr>
+<tr><td>③</td><td>等待期间若调用方又置上了，<b>保持停着继续等</b></td>
+    <td>不白跑一轮 停→启，也不让调用方看到「已让出」标志抖动</td></tr>
+<tr><td>④</td><td>停止朗读时把<b>已经发出的暂停请求还回去</b></td>
+    <td>不还的话没人会放开采集，麦克风要停到 60 秒兜底才恢复</td></tr>
+</table>
+</div>
+
+<div class="callout">
+<b>诚实标注</b>：这一条是<b>推断</b>。窗口只有 50~150 毫秒，属于概率事件，
+这次没有真机日志坐实。四条修法都已落地、也都加了日志 ——
+若再出现，导出诊断日志看 <code>待播被顶掉</code> / <code>打断上一条朗读</code> /
+<code>等采集让出会话超时</code> 哪一行，即可定案。
+</div>
+</section>
+
+<section>
+<h2>三、证据</h2>
+
+<pre>全套回归      9 模块 / <span class="ok">184 条</span> / 全 OK   （v0.2.14 基线 168，本轮 +16，全在 test_speech_pipeline）
+Java 语法     11/11 ✓
+bash 全角变量 scripts/*.sh 全绿
+
+build-ios.sh --device  →  ** BUILD SUCCEEDED **
+  ✔ com.shiefzhang.voicetranslator 已安装（Debug 构建 · <span class="ok">0.2.15/18</span>）
+     iPad mini 4 / J96AP / iOS 15.8.8
+  多变体判据  armv8a sdot=0 smmla=0 ✅ / dotprod sdot=560 ✓ / i8mm sdot=560 smmla=268 ✓
+  专用引擎    VTOpusNmt.o 有 U _OrtGetApiBase（模拟器 + 真机两个切片）
+版本四层一致  Info.plist 0.2.15/18 = pbxproj = 装机产物回读 = changelog</pre>
+
+<p>本轮新增 16 条判据（<code>test_speech_pipeline.py</code> 9 → 25），
+其中 <b>9 条是负向自证</b> —— 把 <b>v0.2.14 装机版那段真实代码</b> 喂给同一个断言函数，
+必须判红。而且每条都<b>约束了「红的原因」</b>：</p>
+
+<div class="table-wrap">
+<table>
+<tr><th>注入的坏版本</th><th>必须因为什么而红</th></tr>
+<tr><td>采集没有 <code>onStopped</code></td><td class="no">onStopped</td></tr>
+<tr><td><code>startCapture</code> 没接通知</td><td class="no">captureDone</td></tr>
+<tr><td>不冲刷就置位</td><td class="no">冲刷</td></tr>
+<tr><td>顺序反了（先置位、后冲刷）</td><td class="no">抢先退出</td></tr>
+<tr><td><code>captureEnded</code> 没有守卫</td><td class="no">临时停</td></tr>
+<tr><td>标志在异步回调里才置</td><td class="no">窗口</td></tr>
+<tr><td><code>requestSpeech</code> 只认「正在读」</td><td class="no">打断</td></tr>
+<tr><td>两个标志一起清</td><td class="no">抹掉</td></tr>
+</table>
+</div>
+
+<div class="callout warn">
+最后一条用<b>去掉空白</b>的形式比对 —— 免得换个空格 / 换行写法就绕过去；
+这也是上一轮「子串污染」那个坑留下的习惯：
+<b>「判据会红」和「判据因为正确的理由而红」是两件事。</b>
+</div>
+</section>
+
+<section>
+<h2>四、还剩什么</h2>
+<div class="callout">
+<b>真机端到端仍需你跑一遍</b>（0.2.15 已装好）：<br>
+1. 说几句 → 按<b>停止翻译</b> → 界面应当正常收尾（「录音已停止 · 点击开始新的翻译」），
+并且<b>能立刻再开一次新会话</b>；<br>
+2. 顺便留意<b>每一句译文是不是都读出来了</b> —— 若又漏了一句，
+重开 App → 设置 ›「导出诊断日志」→ 发回来，日志尾部就是现场。<br>
+<b>注意</b>：请确认界面版本显示 <b>0.2.15</b>，否则测的还是旧包。
+</div>
+</section>
+
+<footer>
+生成于 2026-10-08 · 对应 iOS v0.2.15 (18) · 详细版：<code>ios/README.md</code> §5.15 ·
+<code>ENGINEERING-NOTES.md</code> 附录 T
+</footer>
+
+</main></body></html>

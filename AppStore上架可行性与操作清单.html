@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · App Store 上架可行性与操作清单</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:36px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+h4{margin:16px 0 6px;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.metric .s{font-size:12px;color:var(--muted)}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:860px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.mid{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+li{margin:4px 0}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+.step{padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#fbfcfe;position:relative}
+.step b{display:block;font-size:14px;margin-bottom:4px}
+.step .n{position:absolute;top:-10px;left:14px;width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;font-size:12px;line-height:22px;text-align:center;font-weight:700}
+.step p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid,.steps{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid,.steps{grid-template-columns:1fr}h1{font-size:27px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">ASSESSMENT · 2026-10-12 · iOS 0.2.15 (18) · 提交前评审</div>
+  <h1>VoiceTranslator 上架 App Store：可行性评估与操作清单</h1>
+  <p class="lead">结论：<b>技术上可以上架，且构建工具链已经超配</b>（本机 Xcode 27 / iOS 27 SDK，要求只要 Xcode 26 / iOS 26 SDK）。但提交前有 <b>3 个必改项</b>，其中 1 个会直接导致 App Store Connect 拒收。</p>
+  <p>另有 <b>2 个前置条件</b>需要你先确认（付费开发者账号、中国大陆区 ICP 备案），以及 <b>1 个体积策略选择</b>。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>912 MiB</b>内置模型体积<span class="s">asr 229 + opus 683 · 上限 4 GB</span></div>
+  <div class="metric"><b>1 项硬阻塞</b>缺隐私清单<span class="s">App Store Connect 会直接拒收</span></div>
+  <div class="metric"><b>2 项应修</b>加密声明 + 语向覆盖<span class="s">前者每次上传都被问，后者是拒审风险</span></div>
+  <div class="metric"><b>工具链 ✅</b>Xcode 27 / iOS 27 SDK<span class="s">要求 Xcode 26 / iOS 26 SDK</span></div>
+</div>
+
+<div class="callout bad">
+<b>最该先看的一条：审核可用性缺口。</b>
+App 内置的只有 <b>asr（转写）</b> 与 <b>opus（专用翻译，只覆盖 zh↔en、zh↔ja 四向）</b>；通用翻译模型（Qwen 1.04 GiB）<b>刻意没有内置</b>，要用户在设置页手动导入。
+后果：审核员如果试 <b>英→日 / 日→英 / 韩 / 粤</b>，界面会给出「先去导入通用模型包」——在 Apple 眼里这属于 <b>Guideline 2.1 App Completeness（功能不完整）</b>。这是本项目最可能被拒的一条，且与代码质量无关。
+</div>
+
+<div class="callout warn">
+<b>第二条：隐私清单缺失。</b>自 2024-05-01 起，用到 required reason API 却不在隐私清单里声明理由的构建，<b>App Store Connect 直接不接受上传</b>。本项目的 <code>UserDefaults.standard</code> 就在这个清单里（<code>ios/VoiceTranslator/Models/ModelPackages.swift:125,255,501,522</code>）。
+</div>
+</section>
+
+<section>
+<h2>二、硬性门槛逐条对照（Apple 现行要求 vs 本项目）</h2>
+<p>下表左列取自 Apple 官方页面，核查时间 2026-10-12；右列是本仓库实测状态。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>门槛</th><th>Apple 现行要求</th><th>生效时间</th><th>本项目实测</th><th>判定</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>构建工具</b></td>
+  <td>Xcode 26 + iOS 26 SDK 或更高</td>
+  <td>2026-04-28 起</td>
+  <td><code>Xcode 27.0 (27A266a)</code><br><code>iphoneos27.0</code></td>
+  <td class="ok">✅ 超配</td>
+</tr>
+<tr>
+  <td><b>最低部署目标</b></td>
+  <td>target iOS 13 或更高<br><small>2027-04 起抬高到 iOS 15</small></td>
+  <td>2026-09-09 起</td>
+  <td><code>IPHONEOS_DEPLOYMENT_TARGET = 15.0</code></td>
+  <td class="ok">✅ 达标<br><small>正好压在 iOS 27 SDK 的支持地板（ValidDeploymentTargets 最小值为 15.0）</small></td>
+</tr>
+<tr>
+  <td><b>隐私清单</b></td>
+  <td>required reason API 必须在 <code>PrivacyInfo.xcprivacy</code> 声明理由</td>
+  <td>2024-05-01 起</td>
+  <td><span class="no">不存在</span>（全仓库 <code>find -iname "*PrivacyInfo*"</code> 为空）</td>
+  <td class="no">❌ 阻塞</td>
+</tr>
+<tr>
+  <td><b>加密出口合规</b></td>
+  <td>建议在 Info.plist 声明，否则每次上传都要人工回答</td>
+  <td>—</td>
+  <td><span class="no">无</span> <code>ITSAppUsesNonExemptEncryption</code></td>
+  <td class="mid">⚠️ 应修</td>
+</tr>
+<tr>
+  <td><b>应用图标</b></td>
+  <td>1024×1024，<b>不得带 alpha 通道</b></td>
+  <td>—</td>
+  <td><code>AppIcon.png</code> = 1024×1024 <b>RGB</b>（无 alpha）</td>
+  <td class="ok">✅</td>
+</tr>
+<tr>
+  <td><b>麦克风用途说明</b></td>
+  <td><code>NSMicrophoneUsageDescription</code> 必填且不得含糊</td>
+  <td>—</td>
+  <td>已写：「用于离线语音转写与翻译。录音只在本次会话的内存中处理，不会上传，也不会保存到磁盘。」</td>
+  <td class="ok">✅ 文案质量好</td>
+</tr>
+<tr>
+  <td><b>未压缩 App 体积</b></td>
+  <td>≤ <b>4 GB</b></td>
+  <td>—</td>
+  <td>内置模型 <b>912 MiB</b> + 静态库 + 资源</td>
+  <td class="ok">✅ 余量很大</td>
+</tr>
+<tr>
+  <td><b>可执行文件 __TEXT</b></td>
+  <td>全部 __TEXT 段合计 ≤ <b>500 MB</b></td>
+  <td>—</td>
+  <td><span class="mid">未实测</span>（llama.cpp + sherpa-onnx + ONNX Runtime 三份静态库全链进主二进制）</td>
+  <td class="mid">⚠️ 需实测</td>
+</tr>
+<tr>
+  <td><b>网络与数据收集</b></td>
+  <td>隐私标签须与代码行为一致</td>
+  <td>—</td>
+  <td>Swift 侧 <b>零</b> <code>URLSession</code> / 零 HTTP 调用</td>
+  <td class="ok">✅ 隐私标签可填「不收集任何数据」</td>
+</tr>
+<tr>
+  <td><b>出口/后台/推送</b></td>
+  <td>—</td>
+  <td>—</td>
+  <td>无 <code>UIBackgroundModes</code>、无 APNs、无第三方 SDK</td>
+  <td class="ok">✅ 合规面极简</td>
+</tr>
+</tbody></table></div>
+
+<div class="callout">
+<b>关于「部署目标 15.0 正好卡在地板上」：</b>实测 <code>iPhoneOS.sdk/SDKSettings.plist</code> 的 <code>ValidDeploymentTargets</code> 最小值为 <code>15.0</code>，所以 Xcode 27 还能编。
+但这是一条<b>会移动的地板</b> —— 下一版 Xcode 若把底线抬到 16.0，项目必须同步上调部署目标，届时 <code>ENGINEERING-NOTES</code> 里「不用 iOS 16+ API」那条约束的适用范围会变。建议现在就在笔记里记一笔。
+</div>
+</section>
+
+<section>
+<h2>三、必改项 ①：补 <code>PrivacyInfo.xcprivacy</code>（阻塞级）</h2>
+<p>本项目实际命中的 required reason API 只有一类：<b>UserDefaults</b>。代码里没有 <code>statfs</code> / 磁盘空间探测，也没有文件时间戳读取，所以清单可以写得很干净。</p>
+
+<h4>1. 新建 <code>ios/PrivacyInfo.xcprivacy</code></h4>
+<pre>&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"&gt;
+&lt;plist version="1.0"&gt;
+&lt;dict&gt;
+	&lt;key&gt;NSPrivacyTracking&lt;/key&gt;
+	&lt;false/&gt;
+	&lt;key&gt;NSPrivacyTrackingDomains&lt;/key&gt;
+	&lt;array/&gt;
+	&lt;key&gt;NSPrivacyCollectedDataTypes&lt;/key&gt;
+	&lt;array/&gt;
+	&lt;key&gt;NSPrivacyAccessedAPITypes&lt;/key&gt;
+	&lt;array&gt;
+		&lt;dict&gt;
+			&lt;key&gt;NSPrivacyAccessedAPIType&lt;/key&gt;
+			&lt;string&gt;NSPrivacyAccessedAPICategoryUserDefaults&lt;/string&gt;
+			&lt;key&gt;NSPrivacyAccessedAPITypeReasons&lt;/key&gt;
+			&lt;array&gt;
+				&lt;string&gt;CA92.1&lt;/string&gt;
+			&lt;/array&gt;
+		&lt;/dict&gt;
+	&lt;/array&gt;
+&lt;/dict&gt;
+&lt;/plist&gt;</pre>
+<ul>
+  <li><code>CA92.1</code> = 仅访问本 App 自身的 user defaults（用于记住引擎档位、朗读模式、导入的包名）。</li>
+  <li>三项「空」声明是<b>刻意</b>的：本 App 不跟踪、不收集数据、不联网。隐私标签与清单因此可以完全对齐 —— 审核时这是加分项。</li>
+</ul>
+
+<div class="callout bad">
+<b>⚠️ 关键：不能只在 Xcode 里拖进去。</b>
+本工程的 <code>project.pbxproj</code> 是 <code>scripts/gen-ios-project.py</code> <b>整体生成</b>的（枚举式，非 synchronized folder）。手动加的文件会在下次重跑生成脚本时<b>静默消失</b>，而构建照常成功 —— 表现为「本地打包没问题，上传却报缺隐私清单」。
+所以必须<b>同时</b>改生成脚本：把 <code>PrivacyInfo.xcprivacy</code> 作为资源文件引用写进 <code>PBXResourcesBuildPhase</code>（与 <code>Info.plist</code> / <code>Assets.xcassets</code> / <code>BundledModels</code> 同样的处理路径，见 <code>gen-ios-project.py:190-265</code>）。
+</div>
+
+<h4>2. 验证方式（别只看文件存在）</h4>
+<pre># 判据：产物 bundle 根目录下真的有这个文件，且是这一轮编出来的
+python3 scripts/build-ios.sh --release
+find ~/Library/Developer/Xcode/DerivedData -name "PrivacyInfo.xcprivacy" -path "*VoiceTranslator.app*" -newermt "-10 minutes"</pre>
+<p class="muted">「符号在 ≠ 宏在」的同款陷阱：只看源文件存在毫无意义，必须看<b>打包产物</b>里有没有。</p>
+</section>
+
+<section>
+<h2>四、必改项 ②：补加密出口合规声明</h2>
+<p>App 没有任何自研加密算法，只有系统 TLS（实际上连网络请求都没有），属于豁免情形。加这个键之后，每次上传不再被弹窗追问。</p>
+<h4>改 <code>ios/Info.plist</code>（唯一真源，改完重跑生成脚本）</h4>
+<pre>&lt;key&gt;ITSAppUsesNonExemptEncryption&lt;/key&gt;
+&lt;false/&gt;</pre>
+<p class="muted">另建议顺手把版本改成首发语义：<code>CFBundleShortVersionString</code> 从 <code>0.2.15</code> → <code>1.0.0</code>、<code>CFBundleVersion</code> → <code>1</code>。App Store 上架后 <code>CFBundleVersion</code> 只能单调递增，首发用 18 会白白吃掉 17 个号段。</p>
+</section>
+
+<section>
+<h2>五、必改项 ③：语向覆盖缺口（真正的拒审风险）</h2>
+<p>内置包与「智能选择」白名单的交叉结果：</p>
+<div class="table-wrap"><table>
+<thead><tr><th>语向</th><th>走哪个引擎</th><th>模型在不在包内</th><th>审核员实测结果</th></tr></thead>
+<tbody>
+<tr><td>中文 ↔ 英文</td><td>OPUS 专用</td><td class="ok">内置 ✅</td><td class="ok">开箱即用</td></tr>
+<tr><td>中文 ↔ 日文</td><td>OPUS 专用</td><td class="ok">内置 ✅</td><td class="ok">开箱即用</td></tr>
+<tr><td><b>英文 ↔ 日文</b></td><td>通用模型</td><td class="no">未内置 ❌</td><td class="no">提示缺包 → 判「功能不完整」</td></tr>
+<tr><td>韩语 / 粤语 相关</td><td>通用模型</td><td class="no">未内置 ❌</td><td class="no">同上</td></tr>
+</tbody></table></div>
+<p class="muted">依据：<code>ios/VoiceTranslator/Core/TranslationBackend.swift:52</code> 的白名单只有 <code>("zh","en"),("en","zh"),("zh","ja"),("ja","zh")</code> 四向。</p>
+
+<h3>三个可选方案</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>方案</th><th>做法</th><th>安装包</th><th>拒审风险</th><th>代价</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>A. 补内置通用模型</b><br><span class="muted">推荐</span></td>
+  <td>把 Q4_K_M 加入 <code>BUNDLED</code> 表，一次配齐</td>
+  <td class="mid">≈ 1.95 GiB</td>
+  <td class="ok">消掉</td>
+  <td>包体翻倍；需走 Wi-Fi 下载；首启不再需要手动导入</td>
+</tr>
+<tr>
+  <td><b>B. 首启引导 + 审核备注</b></td>
+  <td>保持 912 MiB，加一段首启引导页 + 审核备注说明</td>
+  <td class="ok">912 MiB</td>
+  <td class="mid">仍有残险</td>
+  <td>零成本，但取决于审核员是否读懂备注；最坏情况来回一两轮</td>
+</tr>
+<tr>
+  <td><b>C. 扩 OPUS 覆盖面</b></td>
+  <td>给 en↔ja 等补官方 OPUS 单包</td>
+  <td class="mid">+数百 MiB</td>
+  <td class="ok">部分消掉</td>
+  <td>韩/粤仍缺；<code>opus-mt-ja-en</code> 等需重新打包验收</td>
+</tr>
+</tbody></table></div>
+
+<div class="callout warn">
+<b>我的建议：先 B，看审核结果再决定要不要上 A。</b>
+理由：A 会让安装包接近 2 GiB，下载转化率断崖式下跌，为一个可能根本不会触发的审核场景付这个代价不划算。
+B 的成本只是「一段引导 + 一段英文备注」，且即使被拒，拒审意见会明确指向缺功能，那时再上 A 也是一次有据可依的改动。
+</div>
+
+<h3>审核备注模板（App Review Information → Notes）</h3>
+<pre>This app performs 100% on-device speech translation. There is no network
+access at all — no account, no login, no server.
+
+Out of the box, Chinese&lt;-&gt;English and Chinese&lt;-&gt;Japanese work immediately,
+because the ASR model and the compact OPUS-MT translation model are bundled
+inside the app.
+
+Other language pairs (e.g. English&lt;-&gt;Japanese, Korean, Cantonese) use a
+larger general-purpose translation model, which is intentionally NOT bundled
+in order to keep the download size reasonable (the app is 912 MiB, and bundling
+it would push the download past 1.9 GiB).
+
+To test those pairs:
+1. Tap the gear icon (Settings) -&gt; "Model packages".
+2. The app shows exactly which package is missing and how to import it.
+3. A .vtmodel file can be dropped via the Files app or AirDrop.
+
+If you need a ready-to-import package for review, please contact us at
+&lt;your email&gt; and we will provide a download link.
+
+Note: the app will never crash or hang when a model is missing — it always
+shows a clear, actionable message pointing to the settings screen.</pre>
+<p class="muted">模板里的路径与文案要与 App 内实际显示一致（<code>ModelPackages.swift</code> 的缺包提示）；审核员会照着走一遍。改完记得同步。</p>
+</section>
+
+<section>
+<h2>六、两个前置条件（需要你确认）</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>条件</th><th>现状</th><th>说明</th></tr></thead>
+<tbody>
+<tr>
+  <td>1</td>
+  <td><b>付费 Apple Developer Program 账号</b></td>
+  <td class="mid">未知</td>
+  <td>工程里签的是 <code>DEVELOPMENT_TEAM = 8E63E2MJB9</code>（写在 <code>ios/Config/Base.xcconfig</code>）。<b>免费 Apple ID 也能拿到 Team ID，但只能装真机（7 天有效），不能上传 App Store。</b>需要确认这个 Team 是不是 $99/年的付费开发者账号 —— 这是整个流程的硬前提，其余都可以后补。</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td><b>中国大陆区 ICP 备案号</b></td>
+  <td class="mid">未知</td>
+  <td>若只上架海外区，不涉及。若要在中国大陆区提供，需要按工信部要求提供备案信息，否则只能选择不上架国区（App Store Connect 里逐区控制可用性）。<br><small>⚠️ 该条为行业通行做法，建议在提交前于 App Store Connect 的合规信息页复核当前最新口径。</small></td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><b>隐私政策 URL</b></td>
+  <td class="no">还没有</td>
+  <td>App Store Connect 必填项。这个 App 反而最好写：不收集、不上传、不联网、录音只在内存。托管一个静态页面即可。</td>
+</tr>
+<tr>
+  <td>4</td>
+  <td><b>截图素材</b></td>
+  <td class="no">还没有</td>
+  <td><code>TARGETED_DEVICE_FAMILY = "1,2"</code> → iPhone 与 iPad 都要出图。iPad 至少 12.9"/13" 一组，iPhone 至少 6.7" 一组。</td>
+</tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>七、体积策略与下载体验</h2>
+<div class="grid">
+  <div class="metric"><b>912 MiB</b>当前内置<span class="s">asr 229 MiB + opus 683 MiB</span></div>
+  <div class="metric"><b>4 GB</b>未压缩上限<span class="s">余量充足，不是约束</span></div>
+  <div class="metric"><b>1.04 GiB</b>通用模型<span class="s">未内置，用户自行导入</span></div>
+  <div class="metric"><b>&gt;200 MB</b>必然超蜂窝阈值<span class="s">默认只能走 Wi-Fi 下载</span></div>
+</div>
+<div class="callout warn">
+<b>真正影响转化的是蜂窝下载限制，不是 4 GB 上限。</b>
+App 安装体积 912 MiB 远超蜂窝网络默认下载阈值，用户在没连 Wi-Fi 时会看到「需要 Wi-Fi 才能下载」。
+可在 App Store Connect 里申请提高该上限，但 Apple 不保证批准，且与「这是个离线小工具」的定位不符。
+<b>方案 A（补内置通用模型）会把这个问题放大到 ≈1.95 GiB，这是我建议缓一步的主要原因。</b>
+</div>
+<p class="muted">另：Apple 官方文档提到可以用 <b>Apple-Hosted Background Assets</b> 托管大体积资源，但该能力要求 iOS 16+，与本项目 iOS 15.0 的部署目标冲突 —— 走这条路等于放弃 iPad mini 4 这台目标机。不建议。</p>
+</section>
+
+<section>
+<h2>八、上架流程（8 步）</h2>
+<div class="steps">
+  <div class="step"><span class="n">1</span><b>账号就绪</b><p>确认付费开发者账号；在 App Store Connect 签署 Paid Apps 协议（如需收费）并填税务/银行信息。</p></div>
+  <div class="step"><span class="n">2</span><b>注册 App ID</b><p>Certificates, Identifiers &amp; Profiles 里注册 <code>com.shiefzhang.voicetranslator</code>，开启所需能力（本项目只需默认）。</p></div>
+  <div class="step"><span class="n">3</span><b>修 3 个必改项</b><p>隐私清单 + 加密声明 + 语向覆盖决策，改完重跑 <code>scripts/gen-ios-project.py</code>。</p></div>
+  <div class="step"><span class="n">4</span><b>Release 归档</b><p><code>scripts/build-ios.sh --release --device</code>，确认走的是真机 SDK 而不是默认的模拟器。</p></div>
+  <div class="step"><span class="n">5</span><b>建 App 记录</b><p>App Store Connect 新建 App，Bundle ID 选第 2 步注册的那个，填名称/副标题/分类。</p></div>
+  <div class="step"><span class="n">6</span><b>填元数据</b><p>描述、关键词、截图（iPhone 6.7" + iPad 13"）、年龄分级问卷、隐私标签、隐私政策 URL、出口合规。</p></div>
+  <div class="step"><span class="n">7</span><b>TestFlight 内测</b><p>先发内测组。重点验：真机麦克风授权、连续录音、朗读、缺包提示文案。</p></div>
+  <div class="step"><span class="n">8</span><b>提交审核</b><p>附上第五节的英文备注与测试指引，提交。</p></div>
+</div>
+
+<h4>归档前的自查命令</h4>
+<pre># 1) 内置集合没漂（防「多内置一份」这种不报错的坏法）
+python3 scripts/model-tiers.py --verify
+
+# 2) 产物里每 kind 恰好一条 manifest.json（folder reference 判据）
+find &lt;X.app&gt;/BundledModels -name manifest.json
+
+# 3) 隐私清单进了 bundle 根目录
+ls &lt;X.app&gt;/PrivacyInfo.xcprivacy
+
+# 4) 可执行文件 __TEXT 段合计 &lt; 500 MB
+size -m &lt;X.app&gt;/VoiceTranslator | grep -i "__TEXT"
+
+# 5) 确认是 Release + 真机 SDK，不是模拟器产物
+codesign -dv --verbose=4 &lt;X.app&gt; 2&gt;&amp;1 | grep -i platform</pre>
+<p class="muted">第 4 条是本轮唯一没有实测数据、但 Apple 有硬指标的项目 —— 三份静态库全链进主二进制，值得单独看一眼。</p>
+</section>
+
+<section>
+<h2>九、审核风险清单</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>风险</th><th>对应条款</th><th>触发条件</th><th>处置</th></tr></thead>
+<tbody>
+<tr>
+  <td class="no"><b>功能不完整</b></td>
+  <td>2.1 App Completeness</td>
+  <td>审核员试英日互译，看到「缺模型包」</td>
+  <td>第五节的方案 A / B + 英文备注</td>
+</tr>
+<tr>
+  <td class="mid"><b>上传被直接拒收</b></td>
+  <td>Privacy Manifest</td>
+  <td>无 <code>PrivacyInfo.xcprivacy</code></td>
+  <td>第三节</td>
+</tr>
+<tr>
+  <td class="mid"><b>隐私标签与实际不符</b></td>
+  <td>5.1.1</td>
+  <td>标签填了收集数据，但代码不联网；或反过来</td>
+  <td>如实填「不收集任何数据」，与隐私清单保持一致</td>
+</tr>
+<tr>
+  <td class="mid"><b>iPad 多任务布局崩坏</b></td>
+  <td>2.1 / UI 规范</td>
+  <td><code>UIRequiresFullScreen = false</code> 且 <code>TARGETED_DEVICE_FAMILY = "1,2"</code>，审核员在 iPad 上试分屏/台前调度</td>
+  <td>Release 构建下实测 iPad 分屏、旋转、动态字号；这类问题模拟器复现不出，必须真机</td>
+</tr>
+<tr>
+  <td class="mid"><b>默认引擎档位无模型可用</b></td>
+  <td>2.1</td>
+  <td>若曾把默认档从 <code>.hybrid</code> 改成 <code>.unified</code></td>
+  <td>保持默认 <code>.hybrid</code>（<code>TranslationBackend.fallback</code>）</td>
+</tr>
+<tr>
+  <td class="muted"><b>审核员问「为什么不用系统翻译」</b></td>
+  <td>—</td>
+  <td>—</td>
+  <td>备注里强调离线/隐私/无网络，这是本 App 的核心卖点，反而是加分项</td>
+</tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>十、待办清单</h2>
+<ol>
+  <li><b>[阻塞]</b> 新增 <code>ios/PrivacyInfo.xcprivacy</code>，并改 <code>scripts/gen-ios-project.py</code> 让它进 Resources 阶段</li>
+  <li><b>[阻塞]</b> 决策语向覆盖：方案 A（补内置通用模型）还是方案 B（引导 + 审核备注）</li>
+  <li><b>[应修]</b> <code>ios/Info.plist</code> 加 <code>ITSAppUsesNonExemptEncryption = false</code></li>
+  <li><b>[应修]</b> 版本号改 <code>1.0.0</code> / <code>1</code>（改完重跑生成脚本 + 同步 README）</li>
+  <li><b>[确认]</b> <code>DEVELOPMENT_TEAM = 8E63E2MJB9</code> 是否为付费开发者账号</li>
+  <li><b>[准备]</b> 隐私政策静态页 + 支持 URL</li>
+  <li><b>[准备]</b> iPhone 6.7" 与 iPad 13" 两套截图</li>
+  <li><b>[准备]</b> App Store 文案（名称 ≤30 字、副标题 ≤30 字、关键词 ≤100 字）</li>
+  <li><b>[实测]</b> 可执行文件 <code>__TEXT</code> 段合计是否 &lt; 500 MB</li>
+  <li><b>[实测]</b> Release 构建下 iPad 分屏 / 旋转 / 动态字号真机验证</li>
+</ol>
+<div class="callout good">
+<b>好消息是合规面异常干净：</b>零网络、零第三方 SDK、零数据收集、单一权限（麦克风）、体积远低于上限、工具链超配、部署目标达标。
+把上面 1–4 项修完，这个 App 的审核面比绝大多数 App 都简单 —— 唯一需要动脑子的是第 2 项那个「内置多少模型」的取舍。
+</div>
+</section>
+
+<footer>
+本报告的状态数据取自 2026-10-12 的本地仓库实测（<code>ios/Info.plist</code>、<code>ios/Config/Base.xcconfig</code>、<code>scripts/model-tiers.py</code>、<code>ios/VoiceTranslator/Core/TranslationBackend.swift</code>）与 Apple 官方页面（App Store 提交要求、Upcoming Requirements、Maximum build file sizes、Describing use of required reason API）。<br>
+涉及蜂窝下载阈值与中国大陆区备案的具体口径，Apple 会不定期调整，提交前请在 App Store Connect 内复核当前页面。
+</footer>
+
+</main></body>
+</html>

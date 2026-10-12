@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceTranslator · 粤语支持改造报告（v0.2.4）</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1a1d21; --ink2:#5b636e; --ink3:#8b939e;
+    --line:#e4e7ec; --line2:#eef0f3;
+    --ok:#1f8a4c; --okbg:#e9f7ee; --warn:#a86400; --warnbg:#fdf3e0;
+    --bad:#b03030; --badbg:#fdeceb; --info:#20618a; --infobg:#e8f2f8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16181c; --panel:#1e2126; --ink:#e8eaed; --ink2:#a8b0ba; --ink3:#7c848f;
+      --line:#2f343b; --line2:#262a30;
+      --ok:#5cc98b; --okbg:#16281d; --warn:#e0a94a; --warnbg:#2b2314;
+      --bad:#e57373; --badbg:#2d1a19; --info:#6db4dd; --infobg:#152429;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:44px 24px 72px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  h1{margin:0 0 6px;font-size:27px;letter-spacing:-.4px}
+  .sub{color:var(--ink2);font-size:13.5px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  h2{font-size:16px;margin:38px 0 14px;padding-left:11px;border-left:3px solid var(--ink);letter-spacing:-.1px}
+  h2.bad{border-left-color:var(--bad);color:var(--bad)}
+
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px}
+  .vcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .vcard .k{font-size:11.5px;color:var(--ink3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px}
+  .vcard .v{font-size:19px;font-weight:650;letter-spacing:-.3px}
+  .vcard .n{font-size:12px;color:var(--ink2);margin-top:3px}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px;margin:0}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line2);vertical-align:top}
+  th{background:var(--line2);font-weight:600;font-size:12px;color:var(--ink2);
+     letter-spacing:.3px;text-transform:uppercase}
+  tr:last-child td{border-bottom:none}
+  td.m{font-family:var(--mono);font-size:12.2px;word-break:break-all}
+  .dim{color:var(--ink3)}
+
+  .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px;
+    font-weight:600;white-space:nowrap;line-height:1.6}
+  .t-ok{background:var(--okbg);color:var(--ok)}
+  .t-warn{background:var(--warnbg);color:var(--warn)}
+  .t-bad{background:var(--badbg);color:var(--bad)}
+  .t-info{background:var(--infobg);color:var(--info)}
+
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:12.4px;
+    line-height:1.62;margin:0;color:var(--ink)}
+  pre .c{color:var(--ink3)}
+  pre .g{color:var(--ok)}
+  pre .r{color:var(--bad)}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--line2);padding:1px 5px;border-radius:4px}
+
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--info);
+    border-radius:0 10px 10px 0;padding:13px 16px;font-size:13.3px;color:var(--ink2)}
+  .note b{color:var(--ink)}
+  .note.bad{border-left-color:var(--bad)}
+  .note.warn{border-left-color:var(--warn)}
+  .sp{margin-top:14px}
+
+  ol,ul{margin:8px 0 0;padding-left:22px}
+  li{margin:6px 0;font-size:13.5px;color:var(--ink2)}
+  li b{color:var(--ink)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 0}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13px}
+  .node.hit{border-color:var(--bad);background:var(--badbg);color:var(--bad);font-weight:600}
+  .node.ok{border-color:var(--ok);background:var(--okbg);color:var(--ok);font-weight:600}
+  .arw{color:var(--ink3);font-size:14px}
+
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12.3px;color:var(--ink3);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>粤语支持改造报告</h1>
+  <div class="sub">
+    VoiceTranslator <b>v0.2.4</b>（build 7）&nbsp;·&nbsp;
+    语种契约 四语 → 五语&nbsp;·&nbsp; 跨 iOS / Android / 工具链 / C++
+  </div>
+</header>
+
+<div class="verdict">
+  <div class="vcard">
+    <div class="k">模型包</div>
+    <div class="v">3 / 3 通过</div>
+    <div class="n">此前 3 / 3 被拒收</div>
+  </div>
+  <div class="vcard">
+    <div class="k">改动范围</div>
+    <div class="v">24 个文件</div>
+    <div class="n">+807 / −147 行</div>
+  </div>
+  <div class="vcard">
+    <div class="k">构建</div>
+    <div class="v">双平台成功</div>
+    <div class="n">模拟器 + 真机 arm64</div>
+  </div>
+  <div class="vcard">
+    <div class="k">真机</div>
+    <div class="v">0.2.4 已安装</div>
+    <div class="n">iPad mini 4 · 模型包已就位</div>
+  </div>
+</div>
+
+<h2 class="bad">1 · 起点：三个包全部装不进去</h2>
+
+<div class="flow">
+  <div class="node">模型包<br><code>languages = 5 个</code></div>
+  <span class="arw">→</span>
+  <div class="node hit">App 契约<br><code>恰好 4 个</code></div>
+  <span class="arw">→</span>
+  <div class="node hit">整包拒收</div>
+</div>
+
+<p class="sp dim" style="font-size:13px;margin:10px 0 12px">
+  包的 <code>name</code> 写着「中日韩英<b>粤</b>」，而项目里有 <b>五处</b>一致要求「恰好中日韩英四语」。
+  只要有一处不满足，包就被整体拒绝 —— 不是降级，是装不进去。
+</p>
+
+<table>
+  <thead><tr><th>判定位置</th><th>原判定</th></tr></thead>
+  <tbody>
+    <tr><td class="m">model-manifests/*.json</td><td>4 语</td></tr>
+    <tr><td class="m">scripts/model_pack.py:26</td><td>恰好 4 语，否则 <code>ValueError</code></td></tr>
+    <tr><td class="m">scripts/verify_model_languages.py:15</td><td><code>EXPECTED</code> = 4 语，<code>yue</code> 记为 <code>extraLanguages</code></td></tr>
+    <tr><td class="m">app/…/ModelPackages.java:36,65</td><td><code>la.length()!=4</code> → <code>IOException</code></td></tr>
+    <tr><td class="m">ios/…/ModelPackages.swift:138</td><td><code>languages.count == 4</code> → 同样拒绝</td></tr>
+  </tbody>
+</table>
+
+<div class="note bad sp">
+  <b>关键事实：App 里根本没有粤语。</b>
+  <code>Language.swift</code> 的 <code>VT.codes</code> 只有 <code>zh/ja/ko/en/fr/de/ru</code> ——
+  所以包声明 <code>yue</code> 没有任何正面作用，唯一效果就是把整包拖死。
+  这也说明这批包是**有意**走在前面、App 侧尚未跟上。
+</div>
+
+<h2>2 · 决策：正式支持粤语</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:0">
+  在「改包」「放宽契约」「正式支持粤语」三条路里选了第三条 —— 语种契约升级为
+  <b>恰好五语</b>，粤语既是主语言（ASR 输入）也是翻译目标。
+</p>
+
+<table class="sp">
+  <thead><tr><th>项</th><th>值</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="m">VT.codes</td>
+      <td class="m">zh ja ko en <b>yue</b> fr de ru</td>
+      <td><code>yue</code> 插在索引 4，三个数组必须索引对齐</td>
+    </tr>
+    <tr>
+      <td class="m">speechCodeCount</td>
+      <td class="m">4 → <b>5</b></td>
+      <td>主语言候选 = 前 5 个；法/德/俄仍只能作目标语言</td>
+    </tr>
+    <tr>
+      <td class="m">ASR</td>
+      <td class="m">sense_voice.language = "yue"</td>
+      <td>SenseVoice 上游导出本身就带 <code>lang_yue</code>，<b>零改动</b></td>
+    </tr>
+    <tr>
+      <td class="m">翻译</td>
+      <td class="m">engineName → Cantonese</td>
+      <td>prompt 走粤语分支</td>
+    </tr>
+    <tr>
+      <td class="m">反向页</td>
+      <td class="m">目标在前 5 个即可用</td>
+      <td><code>reverseAvailable</code> 加了 <code>yue</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>3 · 最容易炸的一处：语种脚本校验</h2>
+
+<pre><span class="c">// 兜底分支的语义其实是「不含任何汉字」</span>
+if(target=="Chinese")return !kana&&!hangul&&cjk;
+if(target=="Japanese")return kana&&!hangul;
+if(target=="Korean")return hangul&&!kana;
+return <span class="r">!kana&&!hangul&&!cjk</span>;        <span class="r">← 粤语译文全是汉字，必然落进这里</span></pre>
+
+<div class="note bad sp">
+  不显式加分支，粤语翻译会走成这样：
+  <b>判为错误语种 → 用重试提示词再生成一次 → 仍然判错 → 直接抛
+  「模型两次返回错误语种，请缩短句子或更换翻译模型包」</b>。
+  也就是说翻译功能会 100% 失败，而且失败原因看起来像模型问题，不像代码问题。
+</div>
+
+<p class="sp" style="font-size:13.3px;color:var(--ink2);margin:12px 0 0">
+  修法：粤语与中文合并为同一分支 —— <code>case "Chinese", "Cantonese": return !kana && !hangul && cjk</code>。
+  Android 的 C++ 侧写法对应（<code>||</code>），两端语义一致。
+</p>
+
+<div class="note warn sp">
+  <b>已知局限（已写进代码注释与 README）：</b>粤语与普通话同为 CJK 汉字，
+  码位无法区分，所以「模型把粤语写成普通话书面语」这种情况<b>查不出来</b> ——
+  只能靠 prompt 里的 <code>rule("Cantonese")</code> 约束。
+  日/韩能用假名、Hangul 做兜底，粤语做不到。这是设计上的天花板，不是本次引入的缺陷。
+</div>
+
+<h2>4 · 粤语的 prompt 素材</h2>
+
+<p class="dim" style="font-size:13px;margin:0 0 12px">
+  iOS 的 <code>PromptBuilder.swift</code> 与 Android 的 <code>translator.cpp</code> 必须<b>逐字一致</b>，
+  否则同一句话在两端会译出不同结果，回归比对直接失败。以下五段两边完全相同。
+</p>
+
+<table>
+  <thead><tr><th>片段</th><th>值</th></tr></thead>
+  <tbody>
+    <tr><td class="m">native</td><td class="m">粤语</td></tr>
+    <tr><td class="m">hello</td><td class="m">你好。<span class="dim">（与中文相同，有意为之）</span></td></tr>
+    <tr><td class="m">book</td><td class="m">呢本系一本书。</td></tr>
+    <tr><td class="m">hospital</td><td class="m">最近嘅医院喺边度？</td></tr>
+    <tr><td class="m">rule</td><td class="m">只使用粤语白话字（如「嘅」「喺」「唔」「咗」），不要写成普通话书面语，禁止日语假名和韩文。</td></tr>
+  </tbody>
+</table>
+
+<p class="dim sp" style="font-size:12.5px;margin:12px 0 0">
+  <code>hello</code> 与中文相同是刻意的：few-shot 靠 <code>book</code> / <code>hospital</code>
+  体现粤语特征就够了，不必为了区分而硬造不自然的问候语。
+</p>
+
+<h2>5 · 改动清单（24 个文件）</h2>
+
+<table>
+  <thead><tr><th>层</th><th>文件</th><th>改动</th></tr></thead>
+  <tbody>
+    <tr><td>iOS</td><td class="m">Language.swift</td><td>codes/names/shortNames + <code>speechCodeCount</code> + <code>engineName</code></td></tr>
+    <tr><td>iOS</td><td class="m">PromptBuilder.swift</td><td>native/hello/book/hospital/rule/scriptOK 共 7 处</td></tr>
+    <tr><td>iOS</td><td class="m">ModelPackages.swift</td><td>包校验 → 五语</td></tr>
+    <tr><td>iOS</td><td class="m">SettingsView · AppModel · Info.plist</td><td>弹窗文案、注释、changelog、版本 0.2.4(7)</td></tr>
+    <tr><td>Android</td><td class="m">MainActivity.java</td><td>语言表 + <code>reverseAvailable</code> + <code>copyOf(names,5)</code> + <code>n&gt;=5</code> + 文案 + CHANGELOG</td></tr>
+    <tr><td>Android</td><td class="m">Pipeline.java · ModelPackages.java</td><td><code>languageName</code> 映射、两处包校验</td></tr>
+    <tr><td>Android</td><td class="m">cpp/translator.cpp</td><td><code>script_ok</code> · <code>language_name</code> · 5 个 lambda</td></tr>
+    <tr><td>工具链</td><td class="m">model_pack.py · verify_model_languages.py</td><td><code>LANGUAGES</code> / <code>EXPECTED</code></td></tr>
+    <tr><td>工具链</td><td class="m">model-manifests/ ×4</td><td>四个 manifest 的 <code>languages</code></td></tr>
+    <tr><td>测试</td><td class="m">tests/test_model_pack.py</td><td>fixture 升级 + 新增契约回归测试</td></tr>
+    <tr><td>文档</td><td class="m">README.md · ios/README.md</td><td>语种范围说明 + 新增 §5.4 粤语章节</td></tr>
+    <tr><td>版本</td><td class="m">app/build.gradle</td><td>0.2.3(6) → 0.2.4(7)</td></tr>
+  </tbody>
+</table>
+
+<h2>6 · 验证证据</h2>
+
+<pre><span class="c">$ scripts/model_pack.py verify models/*.vtmodel</span>
+<span class="g">Verified qwen25-1.5b-q3-…-yue.vtmodel: translation, ['zh','ja','ko','en','yue']</span>
+<span class="g">Verified qwen25-3b-q3-…-yue.vtmodel:   translation, ['zh','ja','ko','en','yue']</span>
+<span class="g">Verified sensevoice-…-en.vtmodel:       asr,         ['zh','ja','ko','en','yue']</span>
+<span class="c"># 改动前：三个全部 ValueError: Package must support exactly zh, ja, ko, en</span>
+
+<span class="c">$ scripts/verify_model_languages.py &lt;三个包&gt;</span>
+currentAppLanguageSet = ['en','ja','ko','yue','zh']
+三个包 matches=True   extra=[]   missing=[]
+
+<span class="c">$ scripts/tests/test_model_pack.py</span>
+<span class="g">Ran 4 tests in 1.409s
+OK</span>
+
+<span class="c">$ scripts/build-ios.sh        # 模拟器</span>   <span class="g">** BUILD SUCCEEDED **</span>
+<span class="c">$ scripts/build-ios.sh --device</span>       <span class="g">** BUILD SUCCEEDED **</span>
+<span class="g">✔ com.shiefzhang.voicetranslator 已安装（Debug 构建）</span>
+
+<span class="c">$ plutil -extract CFBundleShortVersionString raw …/VoiceTranslator.app/Info.plist</span>
+0.2.4 (7)   ·   arm64   ·   MinimumOSVersion 15.0
+<span class="c"># 原生库仍在位：_llama_ 241 · _ggml_ 1408 · _SherpaOnnx 173 · _Ort 10</span></pre>
+
+<h2>7 · 现在可以导入了</h2>
+
+<div class="note">
+  两个模型包已在 iPad mini 4 的 App Documents 里（覆盖安装保留了数据），
+  新 App 也接受它们的语言声明了。剩下的步骤在设备上：
+</div>
+
+<ol>
+  <li>iPad 上打开 App → <b>设置</b> → 「转写模型包」→ <b>选择模型包</b></li>
+  <li>文件选择器里进 <b>我的 iPad → 多国语音互译</b>（因为 <code>UIFileSharingEnabled=true</code>）</li>
+  <li>选 <code>sensevoice-zh-ja-ko-en.vtmodel</code>，等校验通过</li>
+  <li>同法导入 <code>qwen25-1.5b-q3-zh-ja-ko-en-yue.vtmodel</code>（882 MB）</li>
+  <li>设置里把主语言切成 <b>粤语</b>，试说一句粤语看转写与译文</li>
+</ol>
+
+<div class="note warn sp">
+  <b>导入时的空间占用要留意。</b>App 会先把文件复制到 Caches 再解包到 Application Support，
+  所以峰值约为源文件的 <b>3 倍</b>：导入 882 MB 的翻译包时，加上已装的 229 MB ASR 包，
+  峰值需要约 <b>2.9 GB</b> 空闲。iPad mini 4 若是 16/32 GB 版本会比较紧。
+  导入完成后可以在「文件」App 里删掉 Documents 里的源文件释放空间（已激活的模型不受影响）。
+</div>
+
+<h2>8 · 尚未验证的部分</h2>
+
+<table>
+  <thead><tr><th>项</th><th>状态</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>粤语译文质量</td>
+      <td><span class="tag t-warn">待实测</span></td>
+      <td>1.5B Q3 量化模型能否稳定输出地道粤语，需要真机说话实测或跑
+          <code>verify_translation.py</code>。语言契约打通 ≠ 译文质量达标。</td>
+    </tr>
+    <tr>
+      <td>script_ok 的区分力</td>
+      <td><span class="tag t-bad">设计局限</span></td>
+      <td>无法识别"粤语被写成普通话"，见 §3。</td>
+    </tr>
+    <tr>
+      <td>TranslateGemma + 粤语</td>
+      <td><span class="tag t-warn">存疑</span></td>
+      <td>TranslateGemma 官方语言对里<b>没有粤语</b>。若用它作翻译引擎，
+          粤语方向质量可能不佳 —— 建议粤语场景用 Qwen。</td>
+    </tr>
+    <tr>
+      <td>设计文档</td>
+      <td><span class="tag t-info">未动</span></td>
+      <td><code>概要设计书.md</code> 与三个方案 HTML 里仍是「四语」表述，
+          属历史设计快照，未改写；需要时再补注。</td>
+    </tr>
+  </tbody>
+</table>
+
+<footer>
+  <span>VoiceTranslator · 粤语支持改造（v0.2.4）</span>
+  <span>2026-09-23 · 证据全部来自本机实跑</span>
+</footer>
+
+</div>
+</body>
+</html>

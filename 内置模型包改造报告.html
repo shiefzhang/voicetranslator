@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceTranslator · 内置模型包改造报告（v0.2.6）</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1a1d21; --ink2:#5b636e; --ink3:#8b939e;
+    --line:#e4e7ec; --line2:#eef0f3;
+    --ok:#1f8a4c; --okbg:#e9f7ee; --warn:#a86400; --warnbg:#fdf3e0;
+    --bad:#b03030; --badbg:#fdeceb; --info:#20618a; --infobg:#e8f2f8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16181c; --panel:#1e2126; --ink:#e8eaed; --ink2:#a8b0ba; --ink3:#7c848f;
+      --line:#2f343b; --line2:#262a30;
+      --ok:#5cc98b; --okbg:#16281d; --warn:#e0a94a; --warnbg:#2b2314;
+      --bad:#e57373; --badbg:#2d1a19; --info:#6db4dd; --infobg:#152429;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:44px 24px 72px}
+
+  header{border-bottom:2px solid var(--ink);padding-bottom:18px;margin-bottom:28px}
+  h1{margin:0 0 6px;font-size:27px;letter-spacing:-.4px}
+  .sub{color:var(--ink2);font-size:13.5px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  h2{font-size:16px;margin:38px 0 14px;padding-left:11px;border-left:3px solid var(--ink);letter-spacing:-.1px}
+  h2.bad{border-left-color:var(--bad);color:var(--bad)}
+  h2.ok{border-left-color:var(--ok);color:var(--ok)}
+  h3{font-size:14px;margin:24px 0 9px;color:var(--ink)}
+
+  .verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:12px}
+  .vcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .vcard .k{font-size:11.5px;color:var(--ink3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:5px}
+  .vcard .v{font-size:19px;font-weight:650;letter-spacing:-.3px}
+  .vcard .n{font-size:12px;color:var(--ink2);margin-top:3px}
+  .vcard.bad{border-color:var(--bad);background:var(--badbg)}
+  .vcard.bad .v{color:var(--bad)}
+
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px;margin:0}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line2);vertical-align:top}
+  th{background:var(--line2);font-weight:600;font-size:12px;color:var(--ink2);
+     letter-spacing:.3px;text-transform:uppercase}
+  tr:last-child td{border-bottom:none}
+  td.m{font-family:var(--mono);font-size:12.2px;word-break:break-all}
+  .dim{color:var(--ink3)}
+  .num{font-variant-numeric:tabular-nums}
+
+  .tag{display:inline-block;padding:1px 7px;border-radius:5px;font-size:11.5px;
+    font-weight:600;white-space:nowrap;line-height:1.6}
+  .t-ok{background:var(--okbg);color:var(--ok)}
+  .t-warn{background:var(--warnbg);color:var(--warn)}
+  .t-bad{background:var(--badbg);color:var(--bad)}
+  .t-info{background:var(--infobg);color:var(--info)}
+
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:12.4px;
+    line-height:1.62;margin:0;color:var(--ink)}
+  pre .c{color:var(--ink3)}
+  pre .g{color:var(--ok)}
+  pre .r{color:var(--bad)}
+  code{font-family:var(--mono);font-size:12.5px;background:var(--line2);padding:1px 5px;border-radius:4px}
+
+  .note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--info);
+    border-radius:0 10px 10px 0;padding:13px 16px;font-size:13.3px;color:var(--ink2)}
+  .note b{color:var(--ink)}
+  .note.bad{border-left-color:var(--bad)}
+  .note.warn{border-left-color:var(--warn)}
+  .note.ok{border-left-color:var(--ok)}
+  .sp{margin-top:14px}
+
+  ol,ul{margin:8px 0 0;padding-left:22px}
+  li{margin:6px 0;font-size:13.5px;color:var(--ink2)}
+  li b{color:var(--ink)}
+
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 0}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:13px}
+  .node.hit{border-color:var(--bad);background:var(--badbg);color:var(--bad);font-weight:600}
+  .node.ok{border-color:var(--ok);background:var(--okbg);color:var(--ok);font-weight:600}
+  .arw{color:var(--ink3);font-size:14px}
+
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12.3px;color:var(--ink3);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>内置模型包改造报告</h1>
+  <div class="sub">
+    VoiceTranslator · <b>v0.2.6</b>（Android versionCode 8 / iOS build 9） ·
+    iOS 真机构建已验，<b>Android 侧未编译</b> · 2026-09-23
+  </div>
+  <div class="sub" style="margin-top:5px">
+    需求：把已验证的两个模型包直接打进 App，默认就用这两个，设置里仍可增加其他模型包。两端都做。
+  </div>
+</header>
+
+<div class="verdict">
+  <div class="vcard">
+    <div class="k">内置体积</div>
+    <div class="v">1.11 GB</div>
+    <div class="n">ASR 229 MB + 翻译 882 MB</div>
+  </div>
+  <div class="vcard">
+    <div class="k">iOS 设备占用</div>
+    <div class="v">1.1 GB</div>
+    <div class="n">App 42.6 MB → 1.1 GB</div>
+  </div>
+  <div class="vcard">
+    <div class="k">Android 设备占用</div>
+    <div class="v">2.2 GB</div>
+    <div class="n">APK 1.1 GB + 解出 1.1 GB</div>
+  </div>
+  <div class="vcard bad">
+    <div class="k">Android 编译验证</div>
+    <div class="v">未做</div>
+    <div class="n">本机无 SDK / Java</div>
+  </div>
+</div>
+
+<div class="note bad sp">
+  <b>先说结论里最要紧的一条：Android 侧本机编译不了。</b>
+  这台 Mac 上没有 <code>local.properties</code>、<code>ANDROID_HOME</code>、
+  <code>~/Library/Android/sdk</code>，也没有 <code>java</code>。
+  下面的 Android 改动是<b>通读代码</b>写出来的，只做了括号平衡等结构性检查，
+  <b>必须在 Windows 上跑一次 <code>assembleDebug</code> 才算验过</b>。
+  又因为通读，反而挖出两个会让功能直接不可用的 bug（见 §3）。
+</div>
+
+<h2>1 · 为什么两端策略不同</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:0 0 12px">
+关键前提：<b>`.vtmodel` 是 STORED（无压缩）zip</b>。gguf / onnx 本身已经压缩过，
+再 deflate 一点收益都没有 —— 882 MB 的包压完还是 882 MB。这一条决定了两端的选择。
+</p>
+
+<table>
+  <thead><tr><th>做法</th><th class="num">bundle / APK 内</th><th class="num">设备上再解一份</th><th class="num">合计</th><th>结论</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>放 zip + 首启解压到沙盒</td><td class="num">1.1 GB</td><td class="num">1.1 GB</td><td class="num"><b>2.2 GB</b></td>
+      <td><span class="tag t-bad">iOS 不选</span></td>
+    </tr>
+    <tr>
+      <td>放解包后的目录，只读直接用</td><td class="num">1.1 GB</td><td class="num">0</td><td class="num"><b>1.1 GB</b></td>
+      <td><span class="tag t-ok">iOS 选它</span></td>
+    </tr>
+    <tr>
+      <td>assets 放 zip，首启解包</td><td class="num">1.1 GB</td><td class="num">1.1 GB</td><td class="num"><b>2.2 GB</b></td>
+      <td><span class="tag t-ok">Android 选它</span></td>
+    </tr>
+    <tr>
+      <td>assets 放解包后的文件，首启拷贝</td><td class="num">1.1 GB</td><td class="num">1.1 GB</td><td class="num"><b>2.2 GB</b></td>
+      <td><span class="tag t-bad">一样，不选</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>iOS —— 可以省掉一半</h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:0">
+iOS 的 bundle 里就是**真实文件**，而 sherpa-onnx / llama.cpp 只需要<b>读</b>模型，
+只读的 bundle 路径刚好够用 —— 运行期不往模型目录写任何东西。
+所以直接把解包后的目录放进 bundle，省掉设备上那份副本。
+</p>
+
+<h3>Android —— 省不掉，就选规则不分叉的那条</h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:0">
+assets 不是普通文件，只能通过 <code>AssetManager</code> 流式读，而 native 层要的是<b>真实路径</b>，
+所以无论如何都得在 <code>filesDir</code> 解一份。两种做法占用完全一样，那就选
+<b>复用现有校验流程</b>的：assets 放 zip，运行期走和用户手动导入<b>完全相同</b>的解包路径，
+逐个文件核对 SHA-256。
+</p>
+
+<div class="note sp">
+  <b>两端必须内置同一个包。</b>v0.2.4 的语种契约就是这么漂移的（一端从 4 语扩到 5 语，另一端没跟上）。
+  所以候选筛选只写一份 —— <code>scripts/bundle-models.py</code>，<code>--target</code> 只决定产物写到哪里。
+</div>
+
+<h2>2 · 改动清单</h2>
+
+<table>
+  <thead><tr><th>文件</th><th>改动</th><th style="width:74px">端</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="m">scripts/bundle-models.py</td>
+      <td><b>新增。</b>扫 <code>models/*.vtmodel</code>，按 kind 归类，每个 kind 取体积最小的那个。
+        iOS：解包并逐文件核 SHA-256 → <code>ios/BundledModels/</code> + <code>index.json</code>；
+        Android：拷 zip → <code>app/src/main/assets/bundled-models/&lt;kind&gt;.vtmodel</code>。
+        会清掉上次遗留、这次没选中的 kind 目录（否则旧的 1.5 GB 包会一直躺在 bundle 里）。</td>
+      <td><span class="tag t-info">两端</span></td>
+    </tr>
+    <tr>
+      <td class="m">scripts/gen-ios-project.py</td>
+      <td>① <code>MARKETING_VERSION</code> / <code>CURRENT_PROJECT_VERSION</code> 改从
+        <code>ios/Info.plist</code> 读（原为硬编码 <code>0.2.3</code>/<code>6</code>，改 Info.plist 不生效）；
+        ② <code>BundledModels</code> 以 <b>folder reference</b>（<code>lastKnownFileType = folder</code>）
+        进 resources phase。</td>
+      <td><span class="tag t-info">iOS</span></td>
+    </tr>
+    <tr>
+      <td class="m">Models/ModelPackages.swift</td>
+      <td>新增 <code>bundledRoot</code> / <code>BundledIndex</code> / <code>bundled(kind)</code> /
+        <code>imported(kind)</code>；<code>selected(kind)</code> 改为
+        <code>imported(kind) ?? bundled(kind)</code>；新增 <code>Source</code> 枚举与 <code>source(kind)</code>。</td>
+      <td><span class="tag t-info">iOS</span></td>
+    </tr>
+    <tr>
+      <td class="m">Views/SettingsView.swift</td>
+      <td>模型行加来源徽标（内置 / 已导入）、「恢复内置」按钮（仅当来源是 imported 且确实存在内置包）。</td>
+      <td><span class="tag t-info">iOS</span></td>
+    </tr>
+    <tr>
+      <td class="m">App/VoiceTranslatorApp.swift</td>
+      <td><code>init()</code> 里 <code>#if DEBUG</code> 打一行自检日志（模型包来源 + 显示名）。</td>
+      <td><span class="tag t-info">iOS</span></td>
+    </tr>
+    <tr>
+      <td class="m">scripts/build-ios.sh</td>
+      <td>目录存在但工程没引用时直接报错拦下 —— 这是个静默失败：Xcode 什么都不说，装到设备才发现包不在。</td>
+      <td><span class="tag t-info">iOS</span></td>
+    </tr>
+    <tr>
+      <td class="m">java/…/ModelPackages.java</td>
+      <td>加 <code>BUNDLED_DIR</code> / <code>hasBundled</code> / <code>source</code> / <code>displayName</code> /
+        <code>installBundled</code> / <code>removeInstalled</code>；把 <code>installLargeZip</code> 重构成通用
+        <code>unpack(…, fromBundled)</code>，两条路径共用同一套校验。</td>
+      <td><span class="tag t-bad">Android</span></td>
+    </tr>
+    <tr>
+      <td class="m">java/…/MainActivity.java</td>
+      <td>加 <code>prepareBundled()</code>（后台线程，只在没解过时跑）；模型行加来源标记与「恢复内置」；
+        <b>补上缺失的 <code>onActivityResult</code></b>（见 §3）。</td>
+      <td><span class="tag t-bad">Android</span></td>
+    </tr>
+    <tr>
+      <td class="m">app/build.gradle</td>
+      <td><code>androidResources { noCompress 'vtmodel' }</code>；versionCode 7→8，versionName 0.2.4→0.2.6。</td>
+      <td><span class="tag t-bad">Android</span></td>
+    </tr>
+    <tr>
+      <td class="m">.gitignore</td>
+      <td>加 <code>ios/BundledModels/</code> 与 <code>app/src/main/assets/bundled-models/</code>（两处都是生成物）。</td>
+      <td><span class="tag t-info">两端</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 class="ok">3 · 顺手修掉的两个 bug</h2>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:0 0 16px">
+这两个都不是需求的一部分，是通读代码时撞出来的。第二个尤其要紧 ——
+它会让内置包功能<b>在它唯一的使用场景里 100% 失败</b>。
+</p>
+
+<h3>3.1 <code>onActivityResult</code> 整个是缺失的 <span class="tag t-bad">存量 bug</span></h3>
+<p style="font-size:13.5px;color:var(--ink2);margin:0 0 10px">
+<code>MainActivity</code> 里 <code>startActivityForResult(in, 60)</code> 有，
+但全项目检索 <code>onActivityResult</code> —— <b>0 命中</b>。
+也就是说设置页「选择模型包」能打开文件选择器，<b>选完文件什么都不会发生</b>，
+导入功能根本没接上。这跟内置包无关，是一直躺在那儿的。
+</p>
+
+<h3>3.2 <code>unpack()</code> 不建 <code>models/</code> 目录 <span class="tag t-bad">新引入</span></h3>
+
+<div class="flow sp" style="margin-bottom:12px">
+  <span class="node ok">installBundled()</span>
+  <span class="arw">→</span>
+  <span class="node hit">unpack() 直接进来</span>
+  <span class="arw">→</span>
+  <span class="node">staging.mkdir()</span>
+  <span class="arw">→</span>
+  <span class="node hit">返回 false → 抛异常</span>
+</div>
+
+<table class="sp">
+  <thead><tr><th>环节</th><th>用户导入路径</th><th>内置包路径</th></tr></thead>
+  <tbody>
+    <tr><td>入口</td><td class="m">install()</td><td class="m">installBundled()</td></tr>
+    <tr><td>建 <code>models/</code> 目录</td><td><span class="tag t-ok">有</span> <span class="m">:118 base.mkdirs()</span></td><td><span class="tag t-bad">没有</span></td></tr>
+    <tr><td>建 staging 目录</td><td class="m">staging.mkdir()</td><td class="m">staging.mkdir()</td></tr>
+    <tr><td>结果</td><td>正常</td><td><b>干净安装时抛「无法创建解包目录」</b></td></tr>
+  </tbody>
+</table>
+
+<div class="note bad sp">
+  <b>为什么这个 bug 一定会被撞到：</b><code>File.mkdir()</code> <b>不创建父目录</b>。
+  内置包的<b>唯一使用场景</b>就是「干净安装、用户从没导入过任何包」——
+  这时 <code>noBackupFilesDir/models</code> 并不存在，<code>staging.mkdir()</code> 返回 false。
+  异常又被 <code>prepareBundled</code> 的 catch 吞成一句 toast：
+  「内置模型包准备失败：无法创建解包目录」。用户看到的就是"每次都提示准备失败"。
+</div>
+
+<p style="font-size:13.5px;color:var(--ink2);margin:14px 0 0">
+<b>修法：</b>把 <code>base.mkdirs()</code> 放进<b>唯一漏斗</b> <code>unpack()</code>，而不是依赖调用方记得建。
+</p>
+
+<pre class="sp"><span class="c">// app/src/main/java/com/vt/voicetranslator/ModelPackages.java:95</span>
+<span class="r">- File base = new File(c.getNoBackupFilesDir(), "models"), staging = new File(base, "stage-" + UUID.randomUUID());</span>
+<span class="g">+ File base = new File(c.getNoBackupFilesDir(), "models");</span>
+<span class="g">+ // 必须在这里建，而不是靠调用方：installBundled() 是直接进来的，</span>
+<span class="g">+ // 干净安装时 models/ 还不存在，而 staging.mkdir() 不建父目录会直接失败。</span>
+<span class="g">+ if (!base.isDirectory() &amp;&amp; !base.mkdirs()) throw new IOException("无法创建模型目录");</span>
+<span class="g">+ File staging = new File(base, "stage-" + UUID.randomUUID());</span></pre>
+
+<h2>4 · 验证证据</h2>
+
+<table>
+  <thead><tr><th>检查项</th><th>命令 / 方法</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>模型包单元测试</td>
+      <td class="m">python3 scripts/tests/test_model_pack.py</td>
+      <td><span class="tag t-ok">4/4 OK</span><br><span class="dim">含五语契约回归</span></td>
+    </tr>
+    <tr>
+      <td>语种声明一致性</td>
+      <td class="m">python3 scripts/verify_model_languages.py models/*.vtmodel</td>
+      <td><span class="tag t-ok">matchesCurrentAppLanguageSet: true</span><br><span class="dim">zh ja ko en yue，无缺无多</span></td>
+    </tr>
+    <tr>
+      <td>脚本语法</td>
+      <td class="m">bash -n scripts/build-ios.sh scripts/install-ipad.sh</td>
+      <td><span class="tag t-ok">OK</span></td>
+    </tr>
+    <tr>
+      <td>脚本非 ASCII 变量</td>
+      <td class="m">python3 scripts/lint-bash-nonascii-var.py scripts/*.sh</td>
+      <td><span class="tag t-ok">exit 0</span><br><span class="dim">3 个脚本全过</span></td>
+    </tr>
+    <tr>
+      <td>模拟器启动自检</td>
+      <td class="m">xcrun simctl spawn booted log show --predicate 'eventMessage CONTAINS "[VT]"'</td>
+      <td><span class="tag t-ok">内置 · 中日韩英粤</span><br>
+        <span class="dim">asr / translation 两条都报「内置」</span></td>
+    </tr>
+    <tr>
+      <td>真机构建产物</td>
+      <td class="m">du -sh …/Debug-iphoneos/VoiceTranslator.app</td>
+      <td><span class="tag t-ok">1.1 G</span></td>
+    </tr>
+    <tr>
+      <td>版本号</td>
+      <td class="m">PlistBuddy -c 'Print CFBundleShortVersionString'</td>
+      <td><span class="tag t-ok">0.2.6 (9)</span></td>
+    </tr>
+    <tr>
+      <td>架构 / 最低系统</td>
+      <td class="m">vtool -show-build …/VoiceTranslator</td>
+      <td><span class="tag t-ok">arm64 · minos 15.0</span><br><span class="dim">对上 iPad mini 4 (A8, iOS 15.8.8)</span></td>
+    </tr>
+    <tr>
+      <td>目录树未被压平</td>
+      <td class="m">find …/BundledModels -maxdepth 2 -name manifest.json</td>
+      <td><span class="tag t-ok">两份都在</span><br>
+        <span class="dim">asr/ 与 translation/ 各有自己的 manifest.json —— 这正是用 folder reference 而不是 group 的原因</span></td>
+    </tr>
+    <tr>
+      <td>原生符号仍链入</td>
+      <td class="m">nm …/VoiceTranslator | grep -c</td>
+      <td><span class="tag t-ok">全在</span><br>
+        <span class="dim">llama 230 / ggml 1407 / gguf 60 / SherpaOnnx 173 / Ort 10</span></td>
+    </tr>
+    <tr>
+      <td>Java 括号平衡</td>
+      <td class="m">去字符串与注释后计数</td>
+      <td><span class="tag t-ok">两文件全等</span><br><span class="dim">无编译器时的替代检查</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>真机构建产物实测</h3>
+<pre class="sp"><span class="c">$ du -sh ios/build/Build/Products/Debug-iphoneos/VoiceTranslator.app</span>
+1.1G    ios/build/Build/Products/Debug-iphoneos/VoiceTranslator.app
+
+<span class="c">$ ls …/VoiceTranslator.app/BundledModels/</span>
+asr/  index.json  translation/
+<span class="c"># 229M  asr  ·  4.0K index.json  ·  896M translation</span>
+
+<span class="c">$ vtool -show-build …/VoiceTranslator</span>
+ platform IOS
+    minos 15.0
+      sdk 27.0
+
+<span class="c">$ nm …/VoiceTranslator | grep -c ' _llama_'</span>
+<span class="g">230</span></pre>
+
+<h2 class="bad">5 · 未验证 / 风险</h2>
+
+<table>
+  <thead><tr><th>项目</th><th>状态</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Android 编译与运行</b></td>
+      <td><span class="tag t-bad">未验证</span></td>
+      <td>本机无 Android SDK / Java，连 <code>assembleDebug</code> 都跑不了。
+        §3 的两个 bug 修复<b>没经过编译器</b>。请务必在 Windows 上构建一次。</td>
+    </tr>
+    <tr>
+      <td>Android 首启解包耗时</td>
+      <td><span class="tag t-warn">未测</span></td>
+      <td>1.1 GB STORED zip 走 <code>ZipInputStream</code> + SHA-256，中端机上预计几十秒。
+        跑在后台线程，界面只更新状态文字，不会 ANR。</td>
+    </tr>
+    <tr>
+      <td>真机端到端</td>
+      <td><span class="tag t-warn">未测</span></td>
+      <td>录音 → VAD → ASR → 翻译整条链路仍未实测（历史遗留，与本次改动无关）。</td>
+    </tr>
+    <tr>
+      <td>粤语输出质量</td>
+      <td><span class="tag t-warn">未测</span></td>
+      <td>语种契约已对齐，但粤语实际翻译质量没有评测。</td>
+    </tr>
+    <tr>
+      <td>代码提交</td>
+      <td><span class="tag t-warn">未提交</span></td>
+      <td>所有改动仍在工作区。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note warn sp">
+  <b>顺带一个操作教训（和本项目无关但踩了）：</b>
+  我在后台正跑着 <code>build-ios.sh --device</code> 的时候编辑了这个脚本，
+  结果构建日志末尾冒出一句
+  <code>build-ios.sh: line 75: syntax error near unexpected token 'then'</code>。
+  文件本身语法<b>完全正常</b>（<code>bash -n</code> 通过），构建也确实成功 ——
+  原因是 <b>bash 按字节偏移增量读取脚本</b>，我往开头插了 16 行，偏移量就错位到了某行中间。
+  以后一律等后台脚本跑完再改它。
+</div>
+
+<h2>6 · 怎么用</h2>
+
+<h3>构建（改了模型包之后）</h3>
+<pre><span class="c"># 看每个 kind 会选中哪个包，不写盘</span>
+python3 scripts/bundle-models.py --list
+
+<span class="c"># 写入两端工程（每个 kind 取体积最小的；--pick translation=&lt;id&gt; 可指定）</span>
+python3 scripts/bundle-models.py --target both
+
+<span class="c"># iOS 必须再跑一次工程生成器，把 BundledModels 注册进去</span>
+python3 scripts/gen-ios-project.py
+
+<span class="c"># 然后照常构建</span>
+bash scripts/build-ios.sh --device
+./gradlew :app:assembleDebug          <span class="c"># ← 这一步还没人跑过</span></pre>
+
+<h3>改模型包的注意事项</h3>
+<ul>
+  <li><b>iOS 改了模型包必须重跑 <code>gen-ios-project.py</code></b>。
+    目录存在但工程没引用是静默失败 —— Xcode 什么都不说，装到设备才发现包不在。
+    <code>build-ios.sh</code> 会直接报错拦下这种情况。</li>
+  <li>两端必须内置<b>同一个包</b>，所以候选筛选只写一份，别绕过脚本手工拷。</li>
+  <li>两处产物都是生成物，已在 <code>.gitignore</code>，不要提交 1.1 GB 的模型进仓库。</li>
+</ul>
+
+<h3>用户侧行为</h3>
+<table>
+  <thead><tr><th>场景</th><th>表现</th></tr></thead>
+  <tbody>
+    <tr><td>干净安装</td><td>首启自动准备内置包（Android 显示解包进度），完成后立即可用，无需任何手动步骤</td></tr>
+    <tr><td>设置页看到的来源</td><td>模型行显示 <span class="tag t-ok">内置</span>「SenseVoice 中日韩英粤」</td></tr>
+    <tr><td>导入自己的包</td><td>点「选择模型包」导入 → 顶替内置包，来源变 <span class="tag t-info">已导入</span></td></tr>
+    <tr><td>想退回内置</td><td>出现「恢复内置」按钮 → 删掉导入的那份、重新解出内置包</td></tr>
+    <tr><td>录音/翻译进行中</td><td>两个入口都禁用，并提示「请等待录音与翻译结束后再切换模型包」</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  <span>VoiceTranslator · 内置模型包改造 · v0.2.6（Android 8 / iOS 9）</span>
+  <span>2026-09-23 · iOS 已验，Android 待 Windows 构建验证</span>
+</footer>
+
+</div>
+</body>
+</html>

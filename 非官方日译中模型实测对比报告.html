@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>非官方日译中模型（M2M100 微调）实测对比报告</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+.pill{display:inline-block;padding:.1em .5em;border-radius:999px;font-size:12px;font-weight:700}
+.pill.no{background:#fff1f1;color:var(--red);border:1px solid #f3c6c6}
+.pill.mid{background:#fff8e8;color:var(--amber);border:1px solid #f0d9a8}
+.pill.yes{background:#ecfdf3;color:var(--green);border:1px solid #b7e4cd}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="tag">VOICETRANSLATOR · 引擎评测归档 · 2026-10-10</div>
+  <h1>非官方日译中模型实测对比</h1>
+  <p>把社区微调的 <code>Nekofox/M2M100-ja-zh</code>（M2M100-418M 微调版）自转 int8 ONNX，
+     与已启用的 <strong>ja-en → en-zh 两跳 pivot</strong>、未微调基准 <code>m2m100_418M</code>、
+     以及通用模型 Qwen2.5-1.5B 放在<strong>同一台机、同一语料、同线程数、贪心解码</strong>下同场对比。</p>
+  <p style="opacity:.95"><strong>一句话结论：不构成对现有方案的明确升级。</strong>直译模型把关键错误率从 50% 压到 40%，
+     但代价是 <strong>2.4× 延迟</strong>与 <strong>2.7× 包体</strong>，且总体 chrF 反而略低；质量仍远不及 Qwen。</p>
+</header>
+
+<section>
+  <h2>1 · 结论先行</h2>
+  <table>
+    <thead><tr><th>结论</th><th>依据</th><th>判定</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>不推荐替换现有 pivot</strong></td>
+        <td>关键错误率 40% vs 50%（少 2 例），但 P50 127 ms vs 52 ms、包体 762 MB vs 285 MB</td>
+        <td><span class="pill no">不换</span></td>
+      </tr>
+      <tr>
+        <td>微调<strong>确实有用</strong>，但只在「关键项」上</td>
+        <td>同架构下微调版关键错误 50%→40%，而 chrF 反降 0.3408→0.2975</td>
+        <td><span class="pill mid">部分有效</span></td>
+      </tr>
+      <tr>
+        <td>直译模型是<strong>帕累托中间点</strong>，不是被支配解</td>
+        <td>比 pivot 质量好、比 Qwen 快 10×；三方在「质量×速度」上互不支配</td>
+        <td><span class="pill mid">可作备选</span></td>
+      </tr>
+      <tr>
+        <td><strong>许可未声明</strong>，构成上架阻塞</td>
+        <td>模型卡是自动生成的空模板，无 <code>license</code>；唯基座 <code>facebook/m2m100_418M</code> 是 MIT</td>
+        <td><span class="pill no">合规待定</span></td>
+      </tr>
+      <tr>
+        <td>样本太小，<strong>差异不足以下结论</strong></td>
+        <td>仅 20 条用例，40% vs 50% 只差 2 例（粒度 5%）</td>
+        <td><span class="pill mid">需扩样</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout warn">
+    <strong>口径声明：</strong>语料含自撰补充 16 条（<code>evaluation/ja_zh_supplement.jsonl</code>，
+    文件头已注明「非门禁级」）。按仓库规矩，<strong>这种样本量只能用来<em>否决</em>改动，不能用来<em>采纳</em>改动</strong>。
+    本报告的所有「谁更好」都受此约束。
+  </div>
+</section>
+
+<section>
+  <h2>2 · 四路同场对比（核心）</h2>
+  <p class="muted">语料：20 条 ja→zh 用例（<code>zh_en_ja_sample.jsonl</code> 4 + <code>zh_ja_ko_sample.jsonl</code> 0 + <code>ja_zh_supplement.jsonl</code> 16，去重后）。
+     关键错误率 = 未命中关键项的用例占比；chrF 越高越好；P50/P95 为端到端单句延迟。</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>引擎</th><th>关键错误率</th><th>chrF</th><th>P50</th><th>P95</th><th>包体</th><th>装载</th><th>性质</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>① 微调直译</strong><br><small>Nekofox-M2M100-ja-zh-int8</small></td>
+        <td class="no">40.00% <small>8 / 20</small></td>
+        <td>0.2975</td><td>127 ms</td><td>201 ms</td><td>762 MB</td><td>1506 ms</td>
+        <td>自转 int8 ONNX（本轮新产）</td>
+      </tr>
+      <tr>
+        <td><strong>② 两跳 pivot</strong><br><small>ja-en → en-zh</small></td>
+        <td class="no">50.00% <small>10 / 20</small></td>
+        <td>0.3045</td><td class="ok">52 ms</td><td class="ok">79 ms</td><td class="ok">285 MB</td><td class="ok">680 ms</td>
+        <td><strong>现已启用的方案</strong></td>
+      </tr>
+      <tr>
+        <td><strong>②b 基准对照</strong><br><small>m2m100-418M（未微调）</small></td>
+        <td class="no">50.00% <small>10 / 20</small></td>
+        <td class="ok">0.3408</td><td class="muted">1285 ms *</td><td class="muted">3689 ms *</td><td>1144 MB</td><td>3603 ms</td>
+        <td>预量化 ONNX（旧产物）</td>
+      </tr>
+      <tr>
+        <td><strong>③ 通用模型</strong><br><small>qwen25-1.5b-q4km</small></td>
+        <td class="ok">20.00% <small>4 / 20</small></td>
+        <td class="ok">0.4661</td><td class="no">1389 ms</td><td class="no">1758 ms</td><td>1117 MB</td><td>6198 ms</td>
+        <td>生产档位（few-shot）</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout warn">
+    <strong>* 基准对照的延迟<u>不可比</u>，只有质量列可用。</strong>它用的是早期的「预量化 ONNX」，
+    <code>lm_head</code> 走 fp32 <code>MatMul</code> 且每步反量化词嵌入 —— 每步慢 8.4×（见第 4 节实测）。
+    这正是仓库里既有的记录（<code>check-nmt-quality.py</code> 的 Marian 注释：「自转后快 7.6~8.4 倍」）。
+  </div>
+
+  <h3>门禁判定（脚本自动产出）</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>引擎</th><th>关键错误率降幅<small>相对 Qwen</small></th><th>P95 降幅</th><th>promote</th></tr></thead>
+    <tbody>
+      <tr><td>① 微调直译</td><td class="no">-100.00%</td><td class="ok">88.57%</td><td>✅ 是</td></tr>
+      <tr><td>② 两跳 pivot</td><td class="no">-150.00%</td><td class="ok">95.53%</td><td>✅ 是</td></tr>
+      <tr><td>②b 基准 m2m100</td><td class="no">-150.00%</td><td class="no">-109.83%</td><td>❌ 否</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">判据：<code>关键错误率降幅 ≥ 20% OR P95 延迟降幅 ≥ 35%</code>。
+     注意这条门禁回答的是「<strong>要不要用 NMT 代替 Qwen</strong>」，
+     <strong>不是</strong>「直译与 pivot 谁更好」—— 后者脚本另给判据：<br>
+     「直译 vs 两跳 pivot」：关键错误率降幅 20.00%、P95 降幅 <strong>-155.87%</strong> ⇒ <strong>直译更优 = False</strong>（要求两个维度同时更优）。</p>
+</section>
+
+<section>
+  <h2>3 · 争点样例：直译 vs 两跳到底差在哪</h2>
+  <p>挑出四路判定<strong>出现分歧</strong>的用例（最能说明问题）：</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th style="min-width:230px">日语原文 / 参考</th><th>① 微调直译</th><th>② 两跳 pivot</th><th>②b 基准</th><th>③ Qwen</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>この薬は一日三回飲んでください。<small>这个药请一天吃三次。</small></td>
+        <td class="ok">✓ 请一天服用这类药三次。</td>
+        <td class="no">✗ 每天吃三剂药</td>
+        <td class="no">✗ 每天服用此药。</td>
+        <td class="no">✗ 请按照一日三次的剂量服用这个药。</td>
+      </tr>
+      <tr>
+        <td>このホテルは駅から歩いて五分です。<small>这家酒店离车站走路五分钟。</small></td>
+        <td class="ok">✓ 这家酒店距离车站有5分钟的步行路程。</td>
+        <td class="no">✗ 这家酒店是从车站走的<u>百分之五</u></td>
+        <td class="ok">✓ 这家酒店距离火车站有5分钟的步行路程。</td>
+        <td class="ok">✓ 这家酒店离车站步行五分钟。</td>
+      </tr>
+      <tr>
+        <td>田中さんに伝言をお願いできますか。<small>能帮我给田中带个话吗？</small></td>
+        <td class="no">✗ 你能不能向田中传达<u>一封信</u>呢。</td>
+        <td class="ok">✓ 有事请代田中先生留言吗?</td>
+        <td class="no">✗ 可以向<u>田纳</u>提交信息吗?</td>
+        <td class="no">✗ 可以请田中<u>小姐</u>传达消息吗？</td>
+      </tr>
+      <tr>
+        <td>この料理は辛すぎます。<small>这道菜太辣了。</small></td>
+        <td class="no">✗ 这道菜,<u>太难</u>了。</td>
+        <td class="no">✗ 这盘菜太<u>苦</u>了</td>
+        <td class="no">✗ 这个菜太<u>硬</u>了。</td>
+        <td class="ok">✓ 这道菜太辣了。</td>
+      </tr>
+      <tr>
+        <td>この近くにコンビニはありますか。<small>这附近有便利店吗？</small></td>
+        <td class="no">✗ 附近有商店吗。</td>
+        <td class="no">✗ 附近有便利商店吗?</td>
+        <td class="no">✗ 附近有商店吗?</td>
+        <td class="ok">✓ 附近有便利店吗？</td>
+      </tr>
+      <tr>
+        <td>値段が思ったより高いです。<small>价格比我想的贵。</small></td>
+        <td class="no">✗ 价格比我想象的还要高。</td>
+        <td class="no">✗ 价格比我想象的要高</td>
+        <td class="no">✗ 价格比我想象的要高。</td>
+        <td class="no">✗ 价格比我预期的要高。</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout">
+    <strong>两个高价值的观察：</strong>
+    <ul>
+      <li>两跳 pivot 的典型失败是<strong>两跳误差叠加的语义漂移</strong>：「五分」被译成「百分之五」、
+        「辛い（辣）」在 ja→en 被弱化成「苦涩/苦味」再进中文。直译模型<strong>没有这类错误</strong>——
+        这正是「少一跳」的价值。</li>
+      <li>但直译模型的失败是<strong>词级误选</strong>：「伝言（口信）」译成「一封信」、「辛い」译成「太难」。
+        这类错误 Qwen 也未必全对（「田中小姐」）。</li>
+      <li>「値段が思ったより高い」<strong>四路全错</strong>—— 说明这条参考译文的关键项判定可能过严
+        （「贵」vs「高」在这个语境是等义的），这一点削弱了该用例的区分度。</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>4 · 关键发现：基准模型的延迟是「导出方式」造成的假象</h2>
+  <p>基准 <code>m2m100_418M</code> 的 P50 高达 1285 ms，比同为 M2M100-418M 的微调版（127 ms）慢 10×。
+     直觉会归因于「模型不同」，但实测否定了这个解释：</p>
+  <div class="grid">
+    <div class="metric"><b>9 vs 10</b>解码步数几乎相同<small>不是「生成超长」</small></div>
+    <div class="metric"><b>88.2 vs 10.5 ms</b>每步耗时差 8.4×<small>真正的差异在这</small></div>
+    <div class="metric"><b>860 vs 474 MB</b>decoder 体积差 1.8×<small>权重被重复存放</small></div>
+    <div class="metric"><b>0</b>两者图结构差异<small>MatMulInteger 216 vs 218</small></div>
+  </div>
+  <p>把两个 decoder 的 ONNX 递归展开（计到 <code>If</code> 子图内）后对比：算子构成、量化算子数量、节点总数
+     （4424 vs 4579）基本一致，说明<strong>不是量化方案差，而是导出时的权重绑定/反量化策略差</strong>。
+     结论：<strong>只有微调直译版的延迟是可信的</strong>；基准组只用于回答质量差异。</p>
+  <pre>微基准（同机、同 4 线程、同一句「この料理は辛すぎます。」、贪心解码）
+  微调直译 Nekofox : 解码 10 步 / 105 ms / 10.5 ms 每步   输出「这道菜,太难了。」
+  基准 m2m100      : 解码  9 步 / 793 ms / 88.2 ms 每步   输出「这个菜太硬了。」</pre>
+  <div class="callout bad">
+    <strong>教训（已并入仓库既有记录）：</strong>不要拿「预量化 ONNX」做延迟基线。
+    判据不是看文件名带 <code>_int8</code>，而是跑 ORT profiler 看算子走的是
+    <code>MatMulInteger</code> 还是 <code>MatMul</code>+<code>DequantizeLinear</code>。
+  </div>
+</section>
+
+<section>
+  <h2>5 · 上游核查：为什么只剩这一个候选</h2>
+  <p>先用 HF 镜像 API 逐个 model id 精确检索，确认<strong>官方没有 ja→zh 模型</strong>
+     （<code>opus-mt-ja-*</code> 共 21 个：ja-en/-de/-fr/-ar/…，唯独无 ja-zh；
+     <code>opus-mt-tc-big-zh-ja</code> 只有中→日单向）。再筛社区模型：</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>候选</th><th>架构</th><th>体积</th><th>许可</th><th>结论</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Nekofox/M2M100-ja-zh</strong></td>
+        <td>M2M100-418M 微调</td><td>1.94 GB (fp32)</td>
+        <td class="no">未声明</td>
+        <td class="ok">✅ 选用（与仓库既有 M2M100Engine 同架构，可直接复用链路）</td>
+      </tr>
+      <tr>
+        <td>larryvrh/mt5-translation-ja_zh</td>
+        <td>mT5</td><td class="no">4.9 GB</td><td>—</td>
+        <td class="no">❌ 导出峰值 ~10 GB &gt; 磁盘可用；且需另写引擎</td>
+      </tr>
+      <tr>
+        <td>CjangCjengh/NMT-ja2zh</td>
+        <td>自定义</td><td>230 MB</td><td>—</td>
+        <td class="no">❌ 无 HF 配置（model.pth + vocabs），需反推模型类，风险高</td>
+      </tr>
+      <tr>
+        <td>neverLife/nllb-200-<em>…</em>-ja-zh</td>
+        <td>NLLB-200</td><td>—</td>
+        <td class="no">CC-BY-NC</td>
+        <td class="no">❌ 不可商用</td>
+      </tr>
+      <tr>
+        <td>staka/fugumt-ja-zh</td>
+        <td>—</td><td>—</td><td>—</td>
+        <td class="no">❌ 不存在（401）；staka 只做到 en↔ja</td>
+      </tr>
+      <tr>
+        <td>Marian/OPUS 系社区 ja-zh 微调</td>
+        <td>—</td><td>—</td><td>—</td>
+        <td class="no">❌ 六组关键词搜完，不存在</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout warn">
+    <strong>网络通道说明：</strong>本轮沙箱里 <code>huggingface.co</code> 直连 000、<code>hf-mirror.com</code> 的
+    <code>/resolve/</code>（LFS 大文件）整体挂住、其余镜像（aliendao / SJTU / wisemodel / gitcode）全 000，
+    只有 <code>aifasthub.com</code> 可用且实测 0.14~0.69 MB/s 剧烈抖动 —— 1.94 GB 权重下了
+    <strong>68 分钟</strong>。对照 <code>ModelScope</code> 有 3.5 MB/s，但它没有这个模型。
+  </div>
+</section>
+
+<section>
+  <h2>6 · 词表契约验证（本次转换最大的风险点）</h2>
+  <p>社区包<strong>没有 <code>tokenizer.json</code></strong>，而端侧引擎恰好只读它的
+     <code>model.vocab</code> + <code>added_tokens</code>。导出脚本因此内置了合成逻辑；
+     合成规则「语言 token 接在词表之后、按 <code>additional_special_tokens</code> 顺序」
+     必须与基座逐条吻合，否则模型会<strong>自己乱猜目标语言</strong>。实测验证：</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>判据</th><th>结果</th><th>判定</th></tr></thead>
+    <tbody>
+      <tr><td>Nekofox <code>vocab.json</code> 条数</td><td>128004</td><td>—</td></tr>
+      <tr><td>与基准 <code>model.vocab</code> 的<strong>交集 id 冲突</strong></td><td>0 条</td><td class="ok">✅ 同一 id 空间</td></tr>
+      <tr><td>基准有而 Nekofox 无的条目</td><td>108 条 = 100 个语言 token + <code>&lt;madeupword0..7&gt;</code></td><td class="ok">✅ 那 8 条从不被选中，故意不收更安全</td></tr>
+      <tr><td>合成语言 token 与基座 id 不一致数</td><td>0 / 100</td><td class="ok">✅ 规则正确</td></tr>
+      <tr><td>关键 id：<code>__ja__</code> / <code>__zh__</code></td><td>128046 / 128102</td><td class="ok">✅ 与基座一致</td></tr>
+      <tr><td>两端 <code>config.vocab_size</code></td><td>均 128112</td><td class="ok">✅ 一致</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>端侧引擎加载时报告「7 个语言 token | 48 个 past 槽 | use_cache_branch=True」——
+     7 是引擎固定语言表（<code>zh/ja/ko/en/fr/de/ru</code>）命中数，<code>__ja__</code>/<code>__zh__</code> 均在列，合成生效。</p>
+</section>
+
+<section>
+  <h2>7 · 许可与合规</h2>
+  <table>
+    <thead><tr><th>项</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>模型卡的 <code>license</code></td><td class="no"><strong>未声明</strong>（README 是自动生成的空模板，全文多处「More information needed」）</td></tr>
+      <tr><td>基座 <code>facebook/m2m100_418M</code></td><td class="ok">MIT ✅</td></tr>
+      <tr><td>训练数据</td><td class="no">未说明（卡片写「on the None dataset」）</td></tr>
+      <tr><td>训练配置</td><td>18 epochs · lr 5e-5 · batch 15 · Transformers 4.28 / PyTorch 2.0.1</td></tr>
+      <tr><td>上架风险</td><td class="no">模型卡无许可、训练数据不明 ⇒ <strong>不能仅凭「基座是 MIT」就断言可商用</strong>，需人工确认或改用自有微调</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>8 · 产物与验证证据</h2>
+  <h3>哈希</h3>
+  <pre>权重（下载时与流水线各校验一次，均已通过）
+  pytorch_model.bin   SHA-256 = a6d4519f44c0996c517fe4871bfa3cb31bf584fdb9f7d7844ce1de93f0a853c4
+                      size    = 1,944,201,353 B（与上游 LFS 指针一致）
+                      ※ 导出用 --drop-src-weights，现已删除以省磁盘；重跑导出需重新下载
+
+自转 int8 ONNX（本轮新产，落在 .tools/ja-zh/Nekofox-M2M100-ja-zh-onnx/）
+  encoder_model_int8.onnx        287.3 MB  SHA-256 = 3e0ca8ac62b13d081f3f68dd2226fa78198b3df781ea36b7f3bc381b3822e2b1
+  decoder_model_merged_int8.onnx 474.3 MB  SHA-256 = 1bc5fbb08883875d2d81eec81c73889588f16b6303d317d6ab00c0bb9f4430ba
+
+导出统计
+  fp32 2998.6 MB → int8 761.6 MB（压缩 3.94×）
+  INT8 initializer 校验：encoder 144 个 ✅  decoder 242 个 ✅
+  tokenizer.json 合成：vocab 128004 条 + added_tokens 104 条
+</pre>
+  <h3>包体对照</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>方案</th><th>encoder</th><th>decoder</th><th>合计</th></tr></thead>
+    <tbody>
+      <tr><td>① 微调直译</td><td>287.3 MB</td><td>474.3 MB</td><td><strong>762 MB</strong></td></tr>
+      <tr><td>② 两跳 pivot（ja-en + en-zh）</td><td>103.2 MB</td><td>181.9 MB</td><td class="ok"><strong>285 MB</strong></td></tr>
+      <tr><td>②b 基准 m2m100</td><td>284.1 MB</td><td>860.4 MB</td><td>1144 MB</td></tr>
+      <tr><td>③ Qwen2.5-1.5B Q4_K_M</td><td>—</td><td>—</td><td>1117 MB</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <h3>复现命令</h3>
+  <pre># 1) 下载权重（含 SHA-256 门禁）
+python3 scripts/fetch-ms.py --source hf --mirror https://aifasthub.com \
+    Nekofox/M2M100-ja-zh &lt;file&gt; &lt;dest&gt;
+
+# 2) M2M100 → int8 ONNX（自动合成 tokenizer.json，EnableSubgraph 量化）
+python3 scripts/export-m2m-onnx.py .tools/ja-zh/Nekofox-M2M100-ja-zh \
+    .tools/ja-zh/Nekofox-M2M100-ja-zh-onnx --langs ja,zh --threads 4
+
+# 3) 三方对比（--nmt-only 跳过 Qwen，最快）
+python3 scripts/check-ja-zh-models.py --nmt-only --threads 4
+#    加基准对照（未微调 m2m100）
+python3 scripts/check-ja-zh-models.py --with-base-m2m --threads 4</pre>
+  <p class="muted">结构化结果：<code>dist/verification/ja-zh-compare.json</code></p>
+</section>
+
+<section>
+  <h2>9 · 建议</h2>
+  <ol>
+    <li><strong>维持现状，不把日译中切到直译模型。</strong>
+        现有 pivot 在延迟（52 ms vs 127 ms）与体积（285 MB vs 762 MB）上明显更优，
+        而质量差距（50% vs 40%）只有 2 例、样本不支持。</li>
+    <li><strong>若日后想提升日译中质量，优先考虑 Qwen 侧</strong>（20% 错误率是三者最优），
+        或把 Qwen 换成更小的专用微调，而不是引入这个社区模型。</li>
+    <li><strong>若确实要采纳直译路线，前置条件有二：</strong>
+        ① 把语料从 20 条扩到 ≥ 200 条重跑（现粒度 5%，差 2 例无统计意义）；
+        ② 先解决许可问题（模型卡无 license、训练数据不明）。</li>
+    <li><strong>保留本轮基础设施</strong>：<code>export-m2m-onnx.py</code>（M2M 家族通用导出 + 自合成 tokenizer）、
+        <code>check-ja-zh-models.py</code>（多方对比编排）、<code>evaluation/ja_zh_supplement.jsonl</code>（可继续扩样），
+        它们对后续任何 NMT 候选都有复用价值。</li>
+  </ol>
+  <div class="callout good">
+    <strong>本轮顺带修掉/坐实的工程问题（对后续都有用）：</strong>
+    <ul>
+      <li><code>| tail</code> 会吞掉真实退出码 ⇒ 出现「报完成但文件不存在」的假绿灯，已改为写日志 + 独立 SHA 校验。</li>
+      <li>旧下载器残留的 <strong>孤儿 curl</strong> 与新下载器同时写同一批分块 ⇒ 文件必然损坏、进度忽上忽下，已定位并杜绝。</li>
+      <li>沙箱「安全删除」会把 <code>rm</code> 变「移入废纸篓」⇒ <strong>空间不释放</strong>，需用 <code>/bin/rm</code> 才生效。</li>
+      <li>「预量化 ONNX」的 <code>lm_head</code> 陷阱：延迟差 8.4×，必须用自转包做延迟基线。</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  VoiceTranslator · 非官方日译中模型实测对比报告 · 生成于 2026-10-10<br>
+  语料 20 条（含自撰补充 16 条，非门禁级）· 同机同线程贪心解码 · 数据源 <code>dist/verification/ja-zh-compare.json</code>
+</footer>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 模型包去内置（v0.2.9）</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:880px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.half{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}.grid{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<div style="margin:0 0 22px;padding:18px 22px;border-left:5px solid #b42318;border-radius:10px;background:#fff1f1;color:#7a271a;font:15px/1.7 system-ui,-apple-system,'Microsoft YaHei',sans-serif">
+  <b>⚠️ 本报告描述的结论已在 v0.2.10 被部分推翻。</b><br>
+  这份记录的是 v0.2.9「<b>一份模型包都不内置</b>」。现在（v0.2.10）改为
+  <b>内置转写（asr）+ 专用翻译（opus），只有通用翻译（translation）由用户导入</b>，
+  iOS 产物 826 MB。<br>
+  保留本文是因为其中的两条推理<b>仍然成立</b>：① 用户导入那条路径要逐文件校验 SHA-256；
+  ②「安装失败却打印 ✔ 已安装」是假绿灯。<b>但请勿照本文改代码</b> ——
+  现状见同目录的 <code>模型包部分回内置报告.html</code>。
+</div>
+
+<header>
+  <div class="tag">MEASURED · 2026-09-30 · 第 4 轮 · v0.2.9（已被 v0.2.10 部分推翻）</div>
+  <h1>App 里一份模型包都不留：<br>四层拆除与它的假绿灯</h1>
+  <p class="lead">需求原话：「<b>都不内置，包括 qwen 也作为「用户可导入的可选档位」，不打包到 app 里</b>」。于是转写 / 通用翻译 / 专用翻译三份全部改为用户在设置页导入 —— 连推荐档 Qwen2.5-1.5B Q4_K_M 也一样。</p>
+  <p>结果：iOS 的 <code>.app</code> 从 <b>1.8 GB 掉到 48 MB</b>，两个 SDK（模拟器 / 真机）的产物里都<b>没有</b> <code>BundledModels</code>，v0.2.9 已装到真机 <b>iPad mini 4</b> 上。过程中顺带修掉一个<b>长期存在的假绿灯</b>：安装失败时脚本仍然打印「✔ 已安装」。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="grid">
+  <div class="metric"><b>1.8 GB → 48 MB</b>iOS 产物实测<br><span class="muted">两个 SDK 都是 48 MB</span></div>
+  <div class="metric"><b>4 层全拆</b>脚本 / 工程文件 / iOS / Android<br><span class="muted">每层都加了拦截或守卫</span></div>
+  <div class="metric"><b>88 项测试全绿</b>新增 11 项守卫<br><span class="muted">38 项是在原有集合里改的</span></div>
+  <div class="metric"><b>1 个假绿灯</b>修掉 <code>install-ipad.sh</code><br><span class="muted">安装失败却打印 ✔</span></div>
+</div>
+
+<div class="callout bad">
+<b>为什么这不是「删一个目录」：</b>内置路径在<b>脚本 / Xcode 工程文件 / iOS 源码 / Android 源码</b>四处各有一半，
+而残余的判定全是<b>运行期</b>的（<code>hasBundled</code> 返回 false、<code>bundledAsset()</code> 返回 null），
+<b>编译器看不见</b>；<code>prepareBundled()</code> 的异常本来就被自己 try/catch 吞掉。
+⇒ <b>只拆一半的现象是「安静地多 1.8 GB」或「一个点了没反应的入口」，不是崩溃。</b>
+这正是最容易验收通过、又最该防的形态。
+</div>
+</section>
+
+<section>
+<h2>二、四层各拆了什么，只拆一半会怎样</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>层</th><th>原来的东西</th><th>只拆一半的后果</th><th>现在的拦截手段</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>脚本</b></td>
+  <td><code>bundle-models.py</code><br><small><code>DEFAULT_PICKS</code> / <code>emit_ios</code> / <code>emit_android</code> / <code>scan</code></small></td>
+  <td class="no">下次构建<b>又把 1.8 GB 写回去</b></td>
+  <td>文件已删除；<code>model-tiers.py</code> <b>只列不写</b>；被移除的开关 <code>--pick/--target/--omit/--force</code> 报错退出 2</td>
+</tr>
+<tr>
+  <td><b>工程文件</b></td>
+  <td><code>gen-ios-project.py</code> 里的 <code>BundledModels</code> folder reference + <code>PBXBuildFile</code> + Resources 条目</td>
+  <td class="half">目录没了但工程还引用 → <b>构建失败</b><br><small>这是四层里<b>唯一会响</b>的一层</small></td>
+  <td>生成脚本不再产出；<code>build-ios.sh</code> <b>双向</b>拦截（目录在 → 报错；pbxproj 里还有 → 报错）</td>
+</tr>
+<tr>
+  <td><b>iOS</b></td>
+  <td><code>bundledRoot</code> / <code>BundledIndex</code> / <code>bundled(_:)</code> / <code>Source</code> / <code>source(_:)</code></td>
+  <td class="no">包已移除，UI 仍显示「内置」徽章，点「恢复内置」<b>没反应也不报错</b></td>
+  <td>方法整组删除；<code>install()</code> 局部量改名，杜绝遮蔽（见第四节）</td>
+</tr>
+<tr>
+  <td><b>Android</b></td>
+  <td><code>BUNDLED_DIR</code> / <code>bundledAsset</code> / <code>hasBundled</code> / <code>installBundled</code> / <code>fromBundled</code><br>+ <code>MainActivity.prepareBundled()</code></td>
+  <td class="no">首启去解 <code>assets/bundled-models/</code> → <b>静默失败</b>，用户只看到「模型未就绪」而不知道为什么</td>
+  <td>方法整组删除；首启弹窗<b>点名</b>缺哪一份</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h3>改动清单（按层）</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>文件</th><th>动作</th></tr></thead>
+<tbody>
+<tr><td><code>scripts/model-tiers.py</code></td><td class="ok">新建</td></tr>
+<tr><td><code>scripts/tests/test_no_bundled_models.py</code></td><td class="ok">新建 · 11 项守卫</td></tr>
+<tr><td><code>scripts/bundle-models.py</code></td><td class="no">删除</td></tr>
+<tr><td><code>scripts/tests/test_model_pack.py</code></td><td>改 · <code>BundleDefaultPicks</code>(3) → <code>ModelTierCatalog</code> + <code>SizeOnlyPickIsGone</code></td></tr>
+<tr><td><code>ios/…/Models/ModelPackages.swift</code></td><td>改 · 删内置一组；<code>imported(_:)</code> → <code>installed(_:)</code> + <code>isReady(_:)</code></td></tr>
+<tr><td><code>ios/…/App/AppModel.swift</code> · <code>Views/SettingsView.swift</code> · <code>App/VoiceTranslatorApp.swift</code> · <code>Core/Pipeline.swift</code></td><td>改 · 首启点名；徽章只剩「已导入 / 未就绪」；<code>restoreBundled</code> → <code>removePackage</code></td></tr>
+<tr><td><code>app/…/ModelPackages.java</code> · <code>MainActivity.java</code></td><td>改 · 删内置一组与 <code>prepareBundled()</code>；设置页加「移除」</td></tr>
+<tr><td><code>scripts/gen-ios-project.py</code> · <code>scripts/build-ios.sh</code></td><td>改 · 工程里再无 <code>BundledModels</code>；构建脚本双向拦截</td></tr>
+<tr><td><code>scripts/install-ipad.sh</code></td><td class="ok">改 · <b>修掉假绿灯</b>（第六节）</td></tr>
+<tr><td><code>.gitignore</code></td><td>改 · <b>刻意移除</b>两条内置输出的 ignore 规则</td></tr>
+<tr><td><code>app/build.gradle</code> · <code>ios/Info.plist</code></td><td>改 · versionCode 11 / <code>0.2.9</code>；build 12 / <code>0.2.9</code></td></tr>
+<tr><td><code>README.md</code> · <code>ios/README.md</code></td><td>改 · 新增「模型包不再内置（v0.2.9 起）」；<code>ios/README</code> §5.6 加「已被推翻」横幅 + 新增 §5.9</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+<b><code>.gitignore</code> 里那两条规则是故意删掉的。</b>原本
+<code>ios/BundledModels/</code> 与 <code>app/src/main/assets/bundled-models/</code> 被 ignore 掉；
+现在<b>移除</b>了 —— 若有人重新加回内置，那 1.8 GB 应该<b>出现在 <code>git status</code> 里</b>，
+而不是被安静地忽略。<code>build-ios.sh</code> 里那句 <code>BundledModels</code> 检查是同一个目的：
+<b>让它响，而不是让它静。</b>
+</div>
+
+<h3>本轮删除的产物（都是构建期生成物，不是源码）</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>路径</th><th>体量</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>ios/BundledModels/</code></td><td>≈ 1.8 GB</td><td>解包后的只读目录（<code>asr</code> 229M / <code>translation</code> 1.0G / <code>opus</code> 548M + <code>index.json</code>）</td></tr>
+<tr><td><code>app/src/main/assets/bundled-models/</code></td><td>≈ 1.80 GiB</td><td>三个 <code>.vtmodel</code>（与右侧三档同源，只是没解包）</td></tr>
+</tbody>
+</table>
+</div>
+<p class="muted">保留：<code>models/</code>（源包 —— 用户导入时选的就是这里的文件）、<code>app/src/main/assets/licenses/</code>（许可）。</p>
+</section>
+
+<section>
+<h2>三、新接口：<code>null</code> 是正常状态，不是错误</h2>
+
+<p>两端现在都只剩「用户导入」这一条路。删掉内置之后最关键的一条契约是：</p>
+
+<pre>// iOS — ModelPackages.swift
+static func installed(_ kind: Kind) -&gt; URL?   // 取代 imported() ?? bundled()
+static func isReady(_ kind: Kind) -&gt; Bool     // installed(kind) != nil
+
+// Android — ModelPackages.java
+static File   selected(Context c, String kind)      // 唯一入口
+static String displayName(Context c, String kind)</pre>
+
+<div class="callout bad">
+<b>🔴 <code>installed(_:)</code> 返回 <code>nil</code> 不是错误</b> —— 首启按定义就没有任何包。
+两端都必须把它渲染成「<b>未就绪</b>」并<b>点名缺的是哪一份</b>，不能只显示一句泛泛的「模型未就绪」。
+</div>
+
+<p>首启点「开始」时的弹窗（两端同文案）：</p>
+<pre>还缺转写、翻译模型包。请在设置里点「导入模型包」选择文件，导入后即可完全离线使用。</pre>
+
+<p class="muted"><b>判据：</b>首启点「开始」→ 弹窗里必须出现<b>具体缺哪一个</b>（<code>转写</code> / <code>翻译</code>）；
+只看到「模型未就绪」就是没做到这一步。设置页也加了分区标题
+「以下三份模型包需自行导入（各一次即可，之后完全离线）」，徽章只剩 <code>已导入</code> / <code>未就绪</code>，
+未就绪时按钮是「导入模型包」、就绪后是「更换」+「移除」。</p>
+</section>
+
+<section>
+<h2>四、真 bug：<code>swiftc -parse</code> 查不出名字遮蔽</h2>
+
+<p>本轮唯一一个真编译错误。把 <code>imported(_:)</code> 改名成 <code>installed(_:)</code> 之后：</p>
+
+<pre>ModelPackages.swift:349: error: cannot call value of non-function type 'URL'</pre>
+
+<p><b>成因</b>：<code>install(from:kind:progress:)</code> 里写着</p>
+<pre>let installed = base.appendingPathComponent("\(manifest.id)-\(UUID().uuidString)")</pre>
+<p>这个局部量<b>遮蔽</b>了同名的静态方法 <code>installed(_:)</code> ⇒ <code>installed(kind)</code>
+被解析成「对一个 URL 调用」。<b>修法</b>：局部量改名 <code>activated</code>，并留注释说明为什么不能叫 <code>installed</code>。</p>
+
+<div class="callout bad">
+<b>🔴 关键教训：</b><code>swiftc -parse</code> 对五个 Swift 文件<b>全部报「语法 OK」</b> ——
+它<b>不做名字解析</b>，所以局部变量遮蔽同名静态方法它看不见。
+<b>iOS 侧任何改名后的验收都必须是 <code>bash scripts/build-ios.sh</code>（真编译），不能只 <code>-parse</code>。</b>
+</div>
+</section>
+
+<section>
+<h2>五、守卫：<code>test_no_bundled_models.py</code>（11 项）</h2>
+
+<p>防的是「<b>有人再把内置加回来</b>」。四个类，各自对应第二节四层里的一层：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>类</th><th>断言</th></tr></thead>
+<tbody>
+<tr><td><code>BundledAssetsAreGone</code></td><td>无 <code>ios/BundledModels/</code>；无 <code>assets/bundled-models/</code>；<code>assets/</code> 只剩 <code>["licenses"]</code></td></tr>
+<tr><td><code>XcodeProjectHasNoBundledModels</code></td><td>pbxproj 里没有 <code>BundledModels</code>；<code>PBXResourcesBuildPhase</code> <b>恰好 1 条</b></td></tr>
+<tr><td><code>AppCodeHasNoBundledPath</code></td><td>两端源码无禁用标识符；iOS 有 <code>installed(</code>/<code>isReady(</code> 且<b>没有</b> <code>source(</code>；Android 有 <code>selected(</code>/<code>displayName(</code>；首启文案<b>点名</b>缺失 kind</td></tr>
+<tr><td><code>BundlingPipelineIsGone</code></td><td><code>bundle-models.py</code> 不存在；<code>build-ios.sh</code> <b>不得</b>调用它、但<b>必须</b>仍含 <code>BundledModels</code>；<code>gen-ios-project.py</code> 无 <code>has_bundled</code>/<code>bundled_uuid</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>禁用词用的是「函数标识符」，不是中文「内置」</h3>
+<pre>FORBIDDEN_IN_APP_CODE = [
+    # —— Android ——
+    ("hasBundled",        "Android：判断 assets 里有没有内置包"),
+    ("installBundled",    "Android：把内置包解到内部存储"),
+    ("BUNDLED_DIR",       "Android：内置包在 assets 下的目录常量"),
+    ("bundled-models",    "Android：内置包在 assets 下的实际路径"),
+    # —— iOS ——
+    ("bundledRoot",       "iOS：内置包根目录（Bundle.main.resourceURL/BundledModels）"),
+    ("bundledIndex",      "iOS：内置包索引 index.json"),
+    ("ModelPackages.bundled(", "iOS：取内置包目录"),
+    ("installBundled",    "iOS：内置包安装入口"),
+    ("case bundled",      "iOS：模型包来源枚举里的 .bundled"),
+]</pre>
+
+<div class="callout warn">
+<b>为什么不能拿中文「内置」当禁用词：</b>代码注释里<b>到处在解释「为什么不内置」</b>
+（本轮改动的每个文件都有这类注释），用散文词会让检查器<b>把自己判红</b>。
+⇒ 这也是本项目那条纪律的同一类陷阱：<b>自建检查器必须先用写坏的输入验一遍「它真的会失败」</b>，
+而且<b>判据本身也得选对</b>。
+</div>
+<p class="muted">每条 <code>(marker, why)</code> 里的 <code>why</code> 写清它当年在哪一层、拆掉它的后果 ——
+加新条目时必须同时写 <code>why</code>。</p>
+</section>
+
+<section>
+<h2>六、顺带修掉的假绿灯：安装失败却打印「✔ 已安装」</h2>
+
+<p>这是在做真机验证时撞上的：我用 <code>CODE_SIGNING_ALLOWED=NO</code> 编了个无签名真机包，
+安装明确失败 ——</p>
+<pre>[ !! ] Error 0xe800801c: No code signature found. AMDeviceSecureInstallApplication(...)</pre>
+<p>—— 但脚本随后打印：</p>
+<pre>✔ com.shiefzhang.voicetranslator 已安装（Debug 构建）</pre>
+
+<h3>根因</h3>
+<p>原代码把安装的退出码<b>无条件吞掉</b>，再由「设备上有没有这个 bundle id」下结论：</p>
+<pre>ios-deploy -i "$UDID" -b "$APP_PATH" || true          # ← 退出码丢了
+...
+if [ "$(ios-deploy -i "$UDID" -1 "$BUNDLE_ID" -e …)" = "true" ]; then
+  echo "✔ … 已安装"</pre>
+
+<div class="callout bad">
+<b>这个校验只能回答「设备上<u>有没有</u>这个 bundle id」，回答不了「装上去的是不是我刚编的<u>这一份</u>」。</b>
+所以「旧版本还装着 + 新包没装进去」会被打印成 <code>✔ 已安装（Debug 构建）</code>，
+而设备上跑的还是上一版 —— 正是本项目最忌讳的那类假绿灯。
+</div>
+
+<h3>修法：区分唯一的良性失败，其余一律降级</h3>
+<pre>INSTALL_RC=0
+ios-deploy -i "$UDID" -b "$APP_PATH" &gt;"$INSTALL_LOG" 2&gt;&amp;1 || INSTALL_RC=$?
+
+# 先确认 bundle 存在（这一步的语义没变）
+# 再按退出码定性：
+#   RC=0              → ✔ 已安装（并打出本地版本号）
+#   日志含 0xe800002e → ✔ 已安装（已知良性：装完回查应用列表超时）
+#   其它              → ✘ 安装没有成功（退出 1），并说明
+#                       「设备上那个 bundle 只可能是更早安装的一版」</pre>
+
+<p class="muted">原来那条注释是对的（<code>0xe800002e</code> 确实良性），错的是<b>把它当成了「所有失败的借口」</b>。
+现在良性路径按错误码精确匹配，其余非 0 一律失败退出。</p>
+
+<h3>负向验证（真的会红）</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>输入</th><th>期望</th><th>实测</th></tr></thead>
+<tbody>
+<tr><td>无签名真机包（<code>0xe800801c</code>）</td><td>exit 1 + 说清「只可能是更早安装的一版」</td>
+    <td class="ok">✔ <code>EXIT=1</code>，输出 <code>✘ 安装没有成功：ios-deploy 退出码 253</code></td></tr>
+<tr><td>正常签名构建（<code>build-ios.sh --device</code>）</td><td>exit 0 + 打出本地版本号</td>
+    <td class="ok">✔ <code>✔ com.shiefzhang.voicetranslator 已安装（Debug 构建 · 0.2.9/12）</code></td></tr>
+</tbody>
+</table>
+</div>
+<p class="muted">顺带：这次修改被仓库自己的 <code>lint-bash-nonascii-var.py</code> 抓到 3 处
+<code>$VAR</code> 紧跟全角字符的写法（<code>$LOCAL_BUILD）</code>），已改成 <code>${VAR}</code>，
+现在该文件 lint 全绿 —— <code>bash -n</code> 查不出这类问题。</p>
+</section>
+
+<section>
+<h2>七、负向验证：两道，全过</h2>
+
+<h3>A. 体检器 <code>model-tiers.py</code>（5 道闸）</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>场景</th><th>期望</th><th>实测</th></tr></thead>
+<tbody>
+<tr><td>正常包</td><td>exit 0、零 <code>✗</code></td><td class="ok">✔</td></tr>
+<tr><td><code>manifest.json</code> 不在首位</td><td>exit 1 且点名</td><td class="ok">✔</td></tr>
+<tr><td>去掉 ZIP64 记录</td><td>exit 1 且点名</td><td class="ok">✔</td></tr>
+<tr><td><b>非</b>推荐档位坏掉</td><td>exit 0 + 警告；加 <code>--strict</code> → exit 1</td><td class="ok">✔</td></tr>
+<tr><td>空目录</td><td>exit 1「没有可用的」</td><td class="ok">✔</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+<b>⚠️ 第一版「<code>--strict</code> 看着没生效」是验证脚本自己的 bug。</b>
+<code>run(module, models_dir, argv=())</code> 忘了替换 <code>sys.argv</code>，
+argparse 根本没看见 <code>--strict</code>。
+<b>症状（「这个开关没用」）指向了错误的文件</b> —— 修的是验证脚本，不是 <code>model-tiers.py</code>。
+</div>
+
+<h3>B. 守卫 <code>test_no_bundled_models.py</code>（6 次注入真实文件）</h3>
+<p>逐条注入 → 观察<b>只有对应的那一项变红</b> → 再逐字节还原（sha256 取证）：</p>
+<ol>
+<li>重建 <code>ios/BundledModels/</code></li>
+<li>重建 <code>app/src/main/assets/bundled-models/</code></li>
+<li>往 <code>assets/</code> 加一个非 <code>licenses</code> 的子目录</li>
+<li>给 Java 源码加回 <code>hasBundled</code></li>
+<li>给 <code>gen-ios-project.py</code> 加回 <code>has_bundled</code></li>
+<li>给 <code>project.pbxproj</code> 加回 <code>BundledModels</code></li>
+</ol>
+<p class="muted">六次都只让对应项变红；还原后整套守卫重新全绿。</p>
+</section>
+
+<section>
+<h2>八、验收证据（全部本机实测）</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>项</th><th>证据</th></tr></thead>
+<tbody>
+<tr><td>iOS 模拟器编译</td><td class="ok"><code>** BUILD SUCCEEDED **</code></td></tr>
+<tr><td>iOS 真机编译（自动签名）</td><td class="ok"><code>** BUILD SUCCEEDED **</code></td></tr>
+<tr><td>模拟器产物</td><td class="ok"><b>48 MB</b>，内容只有 <code>AppIcon60x60@2x.png</code> / <code>AppIcon76x76@2x~ipad.png</code> / <code>Assets.car</code> / <code>Info.plist</code> / <code>PkgInfo</code> / <code>VoiceTranslator</code> —— <b>无 <code>BundledModels</code></b></td></tr>
+<tr><td>真机产物</td><td class="ok"><b>48 MB</b>，同样无 <code>BundledModels</code>；<code>0.2.9</code> / build <code>12</code></td></tr>
+<tr><td>真机安装</td><td class="ok"><code>✔ com.shiefzhang.voicetranslator 已安装（Debug 构建 · 0.2.9/12）</code><br><small>设备 <code>J96AP</code> · iPad mini 4 · iOS 15.8.8</small></td></tr>
+<tr><td>工程文件</td><td class="ok"><code>grep -c BundledModels project.pbxproj</code> → <b>0</b>；<code>MARKETING_VERSION = 0.2.9</code>；<code>CURRENT_PROJECT_VERSION = 12</code>；Resources 阶段<b>恰好 1 条</b>；15 条 Swift/bridge 源引用仍在</td></tr>
+<tr><td>测试</td><td class="ok"><b>88 项 OK</b> = <code>test_no_bundled_models</code> 11 + <code>test_model_pack</code> 31 + <code>test_translation_poc</code> 5 + <code>test_translation_quality</code> 41</td></tr>
+<tr><td>Java 语法</td><td class="ok"><code>✓ 11 个 Java 文件的语法都通过</code></td></tr>
+<tr><td>语种契约</td><td class="ok"><code>status = passed</code>，exit 0</td></tr>
+<tr><td>内置目录</td><td class="ok"><code>ios/BundledModels</code> 与 <code>assets/bundled-models</code> <b>都不存在</b>；<code>assets/</code> 下只剩 <code>licenses</code></td></tr>
+<tr><td><code>bundle-models.py</code></td><td class="ok">已删除</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>一个差点误判的坑：陈旧构建产物会伪装成「残留」</h3>
+<div class="callout warn">
+刚开始核验时，<code>ios/build/Build/Products/Debug-iphoneos/VoiceTranslator.app</code> 里
+<b>赫然躺着 <code>BundledModels</code></b>，<code>du -sh</code> 是 <b>1.8 GB</b> ——
+但那是 <b>10:16 编的 0.2.8（build 11）旧产物</b>，不是 14:3x 之后的新构建。
+⇒ 光看真机产物目录会得出<b>完全相反的结论</b>。重新编了真机包后，它变成 <b>48 MB</b> 且再无 <code>BundledModels</code>。
+<b>教训：验证「产物里没有 X」之前，先确认产物是这一轮编的。</b>
+</div>
+</section>
+
+<section>
+<h2>九、体检器的三项判据（每项对应一个真实失败）</h2>
+
+<p><code>model-tiers.py</code> 不再向任何 App 目录写东西，只做「列档位 + 体检能不能导入」。
+三项体检各自的来历：</p>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>检查</th><th>它挡住的真实失败</th><th>判据</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>manifest.json</code> 必须是 zip 的<b>第一个条目</b></td>
+  <td>Android <code>VtStoredZip</code> 是<b>顺序</b>解析 local header 的，非首位直接拒绝：
+      「缺少有效 manifest.json，请选择 .vtmodel 模型包」</td>
+  <td><code>names[0] == "manifest.json"</code></td>
+</tr>
+<tr>
+  <td>含 <code>licenses/</code></td>
+  <td>许可登记要求逐包可追溯（OPUS 系列<b>逐包许可不同</b>）</td>
+  <td>zip 里存在 <code>licenses/</code> 前缀条目</td>
+</tr>
+<tr>
+  <td>有 <b>ZIP64</b> 记录</td>
+  <td>EOCD 里的中央目录偏移是<b>有符号 32 位</b>；越过 2<sup>31</sup> 后读成负数 →
+      <code>invalid CEN header (bad signature)</code></td>
+  <td><code>zip64_info(path)[0] &gt;= 0</code></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+<b>⚠️ <code>manifest.json</code> 优先这条是本次才第一次被检查的。</b>
+实测 <code>models/</code> 下 <b>7 个包全部</b>以 <code>manifest.json</code> 开头，
+但此前<b>没有任何脚本或测试断言过它</b>。<code>model_pack.build()</code> 是在循环之前
+<code>z.writestr('manifest.json', …)</code>，所以不变量成立 ——
+可一旦有人重排写入顺序，两端都会在<b>导入时</b>才炸。
+</div>
+
+<h3>推荐档位仍然是「钉死」的，不是「取最小」</h3>
+<pre>RECOMMENDED = {
+    "asr":         "sensevoice-four-language-int8-v1",
+    "translation": "qwen25-1.5b-q4km-zh-ja-ko-en-yue-v1",
+    "opus":        "opus-mt-zh-en-ja-v1",
+}</pre>
+<p>理由没有变：<code>models/</code> 里 translation 有更小的 Q3（882 MiB vs 推荐档 1.04 GiB），
+任何隐式「取最优 / 最小」策略都会<b>静默降档</b>，而输出是「成功 + 体积变小了」。
+某个 kind 不在 <code>RECOMMENDED</code> 里时<b>不猜</b>，往 stderr 警告而不是挑一个。</p>
+
+<p>当前档位清单（<code>model-tiers.py</code> 实跑输出）：</p>
+<pre>asr          sensevoice-zh-ja-ko-en.vtmodel             229 MiB  必需
+translation  qwen25-1.5b-q4km-zh-ja-ko-en-yue.vtmodel  1.04 GiB  必需
+opus         opus-mt-zh-en-ja-v1.vtmodel                548 MiB  可选
+合计                                                     1.80 GiB  （必需 1.26 GiB + 可选 548 MiB）</pre>
+<p class="muted">可选档位另有 <code>qwen25-1.5b-q3</code>（882 MiB）、<code>qwen25-1.5b-q4_0</code>（1017 MiB）、
+<code>qwen25-3b-q3</code>（1.48 GiB）、<code>translategemma-4b-text-q3_k_m</code>（1.95 GiB）。
+⚠️ <b>Q4_0 不建议</b>：中译粤稳定复读崩坏、中译韩混英文实词，且与来源无关。</p>
+</section>
+
+<section>
+<h2>十、未落实项与需要你确认的事</h2>
+
+<div class="table-wrap">
+<table>
+<thead><tr><th>事项</th><th>状态</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>模型包全部去内置</td><td class="ok">✅ 已落地</td><td>四层全拆 + 守卫 + 双向拦截</td></tr>
+<tr><td>首启点名缺哪一份</td><td class="ok">✅ 已落地</td><td>两端同文案</td></tr>
+<tr><td>安装流程假绿灯</td><td class="ok">✅ 已修</td><td>负向 + 正向都验过</td></tr>
+<tr><td>Android 侧真机验收</td><td class="half">⚠️ 未做</td>
+    <td>本机<b>没有 JDK / Android SDK</b>，Android 侧只有
+        <code>check-java-syntax.py</code>（11 文件语法通过）兜底；
+        真验收要等有环境的机器</td></tr>
+<tr><td>Android 多变体 ISA 派发</td><td class="no">⛔ 阻塞</td>
+    <td>需要 NDK；盲改 <code>CMakeLists.txt</code> 会直接弄坏构建</td></tr>
+<tr><td><code>n_threads</code> 自适应</td><td class="no">⛔ 未做</td>
+    <td>需要把 <code>n_threads</code>（生成）与 <code>n_threads_batch</code>（prefill）分开测</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>需要你确认的两件事</h3>
+<ol>
+<li><b>发布说明要写「升级后需重新导入一次」</b> —— 老版本的内置包在新版本里不再被读取，
+    用户看到的会是「未就绪」。这是<b>设计如此</b>，不是数据丢失。</li>
+<li><b>是否提交这批改动？</b> —— 工作区里除了本轮的文件，还压着前几轮<b>未提交</b>的改动
+    （<code>git status</code> 共 88 条）。我没有替你 commit。</li>
+</ol>
+</section>
+
+<footer>
+① <b>48 MB 是两个 SDK 的实测值</b>（<code>Debug-iphonesimulator</code> 与 <code>Debug-iphoneos</code>），
+不是估算；<code>1.8 GB</code> 是改动前真机产物的实测值（陈旧产物 <code>du -sh</code> 读数）。
+② Android 侧的「APK 体积」<b>本轮没有实测</b> —— 本机无 JDK / Android SDK。
+第三节列的 <code>assets</code> 体量是按被删目录的清单声明值算的，不是打包后读数。
+③ 体检器的三项判据只覆盖「能不能被导入」，<b>不覆盖「导入后能不能跑起来」</b> ——
+后者仍要靠真机跑一次转写 + 翻译。
+④ 守卫测试是<b>白名单式</b>的：它挡「标识符 / 目录 / 工程引用重新出现」，
+挡不住「有人用一套全新命名的内置实现」。
+⑤ 第五节那段 <code>FORBIDDEN_IN_APP_CODE</code> 是从源码逐字抄的，
+<code>why</code> 字段刻意保留中文原样。
+⑥ 第八节的「真机安装」用的是自动签名构建，<b>装的是 Debug</b>；
+Release 路径本轮没走。
+</footer>
+
+</main></body></html>

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VoiceTranslator · 朗读卡死排障（v0.2.11）</title>
+<style>
+:root{--ink:#172033;--muted:#667085;--line:#d9e1ec;--paper:#f5f7fb;--card:#fff;--blue:#2563eb;--green:#138a5b;--amber:#a15c00;--red:#b42318}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.72 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+main{max-width:1180px;margin:auto;padding:44px 30px 80px}
+header{padding:38px 42px;color:#fff;border-radius:22px;background:linear-gradient(135deg,#14213d,#204ecf);box-shadow:0 14px 34px #15326d26}
+.tag{font-size:12px;letter-spacing:.14em;opacity:.72}
+h1{margin:.25em 0 .15em;font-size:38px;line-height:1.2}
+header p{max-width:880px;margin:.4em 0;opacity:.9}
+section{margin-top:26px;padding:28px 30px;border:1px solid var(--line);border-radius:18px;background:var(--card)}
+h2{margin:0 0 14px;font-size:24px}
+h3{margin:22px 0 8px;font-size:18px}
+.lead{font-size:18px}
+.metric{padding:18px;border-radius:14px;background:#f6f8fc}
+.metric b{display:block;font-size:21px;color:var(--blue);margin-bottom:4px}
+.callout{margin:16px 0;padding:16px 18px;border-left:4px solid var(--blue);border-radius:8px;background:#eef4ff}
+.good{border-color:var(--green);background:#ecfdf3}
+.warn{border-color:#f5a524;background:#fff8e8}
+.bad{border-color:var(--red);background:#fff1f1}
+.table-wrap{overflow:auto;margin:12px 0}
+table{width:100%;border-collapse:collapse;min-width:820px}
+th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{white-space:nowrap;background:#f7f9fc;font-size:13px}
+td small{display:block;color:var(--muted)}
+.ok{color:var(--green);font-weight:700}
+.no{color:var(--red);font-weight:700}
+.half{color:var(--amber);font-weight:700}
+code{padding:.12em .35em;border-radius:5px;background:#edf1f7;font-size:13px}
+pre{margin:12px 0;padding:16px 18px;overflow:auto;border-radius:12px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.6}
+ul,ol{padding-left:1.35em}
+.muted{color:var(--muted)}
+a{color:var(--blue)}
+footer{padding:28px 4px;color:var(--muted);font-size:13px}
+@media(max-width:760px){main{padding:18px 12px 50px}header,section{padding:22px 18px}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+
+<header>
+  <div class="tag">DIAGNOSED · 2026-10-03 · v0.2.11 · 症状：朗读「不出声也不往下」</div>
+  <h1>iOS 的「采集线程」<br>原来是 tap 回调</h1>
+  <p class="lead">报：「卡在朗读了，即不出声也不往下」。</p>
+  <p>根因不是朗读本身。是 <code>AudioCapture.onFrame</code> 被 <code>installTap</code> 的回调
+  <b>同步调用</b>，而 Pipeline 的朗读暂停分支<b>就在那个回调里</b>调 <code>audio.stop()</code> ——
+  <code>removeTap</code> / <code>engine.stop()</code> 会<b>同步等待 tap 回调返回</b>。
+  于是采集成了一条自己等自己的死路：朗读出不了声，录音也再不会恢复。</p>
+</header>
+
+<section>
+<h2>一页结论</h2>
+<div class="callout bad">
+<b>一句话：</b>Android 的 <code>Pipeline.capture</code> 是一条能自己 <code>read</code>、自己 <code>stop</code> 的线程；
+iOS 把同样的结构搬到了 <code>installTap</code> 的回调上 —— 而那个回调<b>不是你的线程</b>，是音频引擎的。
+<b>「两端对齐」时，线程模型不能照搬。</b>
+</div>
+
+<h3>铁证：一个声明了却从没用过的队列</h3>
+<pre>private let queue = DispatchQueue(label: "vt-audio-capture")   // ← 全文件只出现这一行</pre>
+<p>作者本来就是要让 <code>onFrame</code> 跑在它上面（等价于 Android 的采集线程），
+<b>连接那一行的代码漏了</b>。它一直躺着，直到这次排障翻出来。</p>
+
+<h3>症状为什么正好是「不出声 + 不往下」</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th>症状</th><th>机制</th></tr></thead>
+<tbody>
+<tr><td>不出声</td><td><code>.record</code> 会话没让出来，<code>setActive(true)</code> 切 <code>.playback</code> 抢不到</td></tr>
+<tr><td>不往下</td><td>采集卡死，录音再也不恢复，后续译文自然也不来</td></tr>
+<tr><td>卡在朗读</td><td><code>AppModel</code> 只等 0.5 s 就拿不到也让步出声，界面停在「正在朗读」</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section>
+<h2>根因链</h2>
+<pre>installTap 回调（音频引擎的线程）
+  └─ process(buffer)
+      └─ onFrame(frame)                       ← 当时是**同步**调用
+          └─ Pipeline: if playbackHold { self.audio.stop() }
+              └─ engine.inputNode.removeTap(onBus: 0)   ← 同步等 tap 回调返回
+                  ↑ 而我们此刻就在那个回调里 = 自等待 → 采集卡死</pre>
+
+<h3>两端同一个「采集循环」，线程含义不同</h3>
+<div class="table-wrap">
+<table>
+<thead><tr><th></th><th>Android</th><th>iOS（修复前）</th></tr></thead>
+<tbody>
+<tr><td>采集循环在哪</td><td><code>Pipeline.capture</code> 的独立线程</td><td><code>AudioCapture.onFrame</code>，由 tap 回调同步调用</td></tr>
+<tr><td>循环里 <code>stop()</code> 安全吗</td><td class="ok">✅ 自己停自己没问题</td><td class="no">❌ <code>removeTap</code> 要等回调返回</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section>
+<h2>改了什么</h2>
+<div class="table-wrap">
+<table>
+<thead><tr><th>文件</th><th>改动</th><th>为什么</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>Core/AudioCapture.swift</code></td>
+  <td>tap 回调只做「深拷贝缓冲 + <code>queue.async</code>」，处理全在 <code>queue</code> 上</td>
+  <td>让「采集线程」变成一条能自己停自己的队列 —— 这是本次修的正主</td>
+</tr>
+<tr>
+  <td><code>Core/AudioCapture.swift</code></td>
+  <td><code>stop()</code> 改走 <b>不阻塞调用者</b>的派发路径</td>
+  <td><code>Pipeline.cancel()</code> 在主线程调它，而采集队列可能正阻塞在朗读等待里 ——
+      <code>queue.sync</code> 会把主线程一起冻住，<b>冻的是界面，比原问题更糟</b></td>
+</tr>
+<tr>
+  <td><code>Core/SpeechPlayer.swift</code></td>
+  <td><code>speak()</code> 返回 <code>Failure?</code>；<code>onFinish</code> 带 <code>Outcome</code>；
+      会话切换不再 <code>try?</code></td>
+  <td>这条路径失败的唯一症状就是「没声音」。<b>「会话被录音占着」和「本机没有该语言的语音数据」
+      对用户的处置完全不同</b>，必须能分开说</td>
+</tr>
+<tr>
+  <td><code>App/AppModel.swift</code></td>
+  <td>按失败原因给不同提示</td>
+  <td>「派下去了但一直没出声」原来被 1 秒看门狗静默收口，现在会明说</td>
+</tr>
+<tr>
+  <td><code>Speaker.java</code>（Android）</td>
+  <td>补 <code>INIT_WATCHDOG_MS = 3s</code></td>
+  <td><code>TextToSpeech</code> 的 init 回调<b>个别 OEM 实现永远不来</b>；此前那条朗读既不读也不回，
+      调用方只能等 Pipeline 的 60 秒超时</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout warn">
+<b>顺带收紧了 doc：</b><code>ios/README.md</code> §5.8 原来写着「停/等/启全发生在<b>采集线程</b>上」——
+这句话正是 bug 的来源（把 tap 回调当成了自己的线程）。已改成「采集<b>队列</b>」并加了一节 §5.11。
+</div>
+</section>
+
+<section>
+<h2>判据与负向验证</h2>
+<p class="muted">项目约定：<b>没见它红过的判据不算判据。</b></p>
+<div class="table-wrap">
+<table>
+<thead><tr><th>判据</th><th>防的是</th><th>注入验证</th></tr></thead>
+<tbody>
+<tr><td>tap 回调里必须有 <code>queue.async</code></td><td>帧又被同步处理（= 回到本次这个 bug）</td><td class="ok">✅ 变红</td></tr>
+<tr><td><code>process(</code> 必须在 <code>queue.async</code> <b>之后</b></td><td>「派发了但处理还在前面」</td><td class="ok">✅ 变红</td></tr>
+<tr><td><code>stop()</code> 不许出现 <code>queue.sync</code></td><td>冻主线程</td><td class="ok">✅ 变红</td></tr>
+<tr><td>会话切换不许 <code>try?</code></td><td>失败变哑谜</td><td class="ok">✅ 变红</td></tr>
+<tr><td>「看到暂停请求 → 宣布已让出」之间必须有 <code>audio.stop()</code></td><td><code>playbackHeld = true</code> 不能是个谎</td><td class="ok">✅ 变红</td></tr>
+<tr><td>Android 挂起分支必须挂 <code>initWatchdog</code></td><td>引擎 init 不来时那条朗读永不作废</td><td class="ok">✅ 变红</td></tr>
+</tbody>
+</table>
+</div>
+<p><b>6/6 精确变红，逐字节还原后全套 119 项全绿。</b>另加 2 条<b>自证</b>：把修复前的真实代码
+喂给同一个断言函数，必须判红 —— 判据若哪天退化成恒真，这两条会先炸。</p>
+
+<div class="callout bad">
+<b>过程中差点留一条假判据：</b>第一版写的是
+<code>assertIn("self.audio.stop()", body)</code> —— 而 <code>onFrame</code> 里
+「积压暂停」那条分支<b>也有一句</b> <code>audio.stop()</code>，只数出现次数会被它蒙混过关。
+改成语义判据（在「看到暂停请求」与「宣布已让出」<b>之间</b>）后才真的会红。
+</div>
+</section>
+
+<section>
+<h2>验收</h2>
+<pre>bash scripts/build-ios.sh --device
+  ** BUILD SUCCEEDED **
+  多变体：armv8a sdot=0 smmla=0 ✅ / dotprod sdot=560 ✓ / i8mm sdot=560 smmla=268 ✓
+  ✓ VTOpusNmt.o 有未定义引用 _OrtGetApiBase（上一轮的宏修复仍生效）
+
+产物 Debug-iphoneos/VoiceTranslator.app
+  CFBundleShortVersionString/CFBundleVersion = 0.2.11/14  · 22:29 本轮构建 · 826M
+  按 UTF-8 字节找新文案：朗读没有出声 1 · 音频会话被录音占着 1 · 正在朗读译文 1
+  BundledModels/{asr,opus,index.json} 仍在
+
+scripts/tests 全套 119 项 OK · Java 语法 11/11 · bash lint 全绿</pre>
+
+<div class="callout warn">
+<b>验收时踩的一个小坑：</b><code>strings</code> 只输出 ASCII，中文一个字都找不到 ——
+第一次查新文案命中 <b>0</b>，差点判成「改动没编进去」。
+改用字节级 <code>bytes.count(s.encode("utf-8"))</code> 才对。
+</div>
+</section>
+
+<section>
+<h2>⚠️ 必须说清的：这一条没能本机复现</h2>
+<div class="callout bad">
+<p>我写了最小重现（在 <code>installTap</code> 回调里调 <code>removeTap</code>），
+<code>swift</code> 和 <code>swiftc</code> 编出来的二进制<b>都被沙箱 SIGTERM</b>
+（exit 137，连第一行输出都没有）—— <b>本机不给音频输入设备</b>（试过关沙箱，同样 137）。</p>
+<p>所以这次的根因链是 <b>「静态证据 + 防御性修复」，不是「复现后修复」</b>。
+置信度<b>高于「推理」、低于「实测」</b>。</p>
+</div>
+
+<h3>要闭合它，只需要你做两件事</h3>
+<ol>
+<li><b>把 iPad 连上 USB</b>，我跑 <code>bash scripts/build-ios.sh --device</code> 装机
+（刚才那次是「没有检测到 USB 设备，跳过安装」）。</li>
+<li>在 iPad 上开录音，让它自动朗读几句，看三件事：
+<ul>
+<li>朗读<b>有没有声音</b>；</li>
+<li>朗读之后<b>录音有没有自动恢复</b>（状态栏会写「朗读结束，录音已继续」）；</li>
+<li>如果还是不行，<b>界面现在会直接说明原因</b> —— 是「音频会话被录音占着」、
+「本机没有该语言的系统语音」，还是「语音引擎没有响应」。把哪一句告诉我就行。</li>
+</ul>
+</li>
+</ol>
+</section>
+
+<footer>
+VoiceTranslator v0.2.11 · 2026-10-03 · 排障报告<br>
+细节：<code>ios/README.md</code> §5.11 · <code>.workbuddy/memory/ENGINEERING-NOTES.md</code> §Q ·
+判据：<code>scripts/tests/test_speech_pipeline.py</code>
+</footer>
+
+</main></body></html>
